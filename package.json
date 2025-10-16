@@ -1,0 +1,47 @@
+{
+  "name": "@membership/policy-middleware",
+  "version": "1.0.0",
+  "description": "Shared policy middleware for membership microservices with centralized RBAC",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./middleware": "./src/policy.middleware.js",
+    "./client": "./src/policyClient.js"
+  },
+  "scripts": {
+    "test": "echo 'No tests specified'",
+    "lint": "echo 'No linting configured'",
+    "version": "git add -A",
+    "postversion": "git push && git push --tags"
+  },
+  "keywords": [
+    "microservices",
+    "policy",
+    "rbac",
+    "middleware",
+    "authorization",
+    "membership"
+  ],
+  "author": "Membership Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kashif147/policy-middleware.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "src/",
+    "README.md"
+  ],
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "peerDependencies": {
+    "express": "^4.18.0"
+  }
+}
