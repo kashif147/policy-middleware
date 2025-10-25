@@ -63,11 +63,43 @@ class PolicyMiddleware {
           console.log(
             `[POLICY_MIDDLEWARE] Auth bypass enabled, granting access for ${resource}:${action}`
           );
+
+          // Still validate token to extract user info, but skip authorization
+          let userFromToken = null;
+          try {
+            const response = await this.policyClient.makeRequest(
+              "/token/validate",
+              {
+                method: "GET",
+                headers: { Authorization: `Bearer ${token}` },
+              }
+            );
+            if (response.success && response.user) {
+              userFromToken = response.user;
+              console.log(
+                "[POLICY_MIDDLEWARE] Token validated, user extracted:",
+                userFromToken
+              );
+            }
+          } catch (error) {
+            console.log(
+              "[POLICY_MIDDLEWARE] Token validation failed, using fallback:",
+              error.message
+            );
+          }
+
           result = {
             success: true,
             decision: "PERMIT",
             reason: "AUTH_BYPASS_ENABLED",
-            user: req.user || { id: context.userId, userType: "PORTAL" },
+            user: userFromToken ||
+              req.user || {
+                id: context.userId || "bypass-user-id",
+                userType: "PORTAL",
+                tenantId: context.tenantId || "default-tenant",
+                roles: [],
+                permissions: [],
+              },
             resource,
             action,
             timestamp: new Date().toISOString(),
