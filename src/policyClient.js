@@ -40,7 +40,7 @@ class PolicyClient {
     }
 
     try {
-      const response = await this.makeRequest("/api/policy/evaluate", {
+      const response = await this.makeRequest("/policy/evaluate", {
         method: "POST",
         data: { token, resource, action, context },
         headers: { "Content-Type": "application/json" },
@@ -81,10 +81,12 @@ class PolicyClient {
    */
   async getPermissions(token, resource) {
     try {
-      return await this.makeRequest("/api/policy/permissions", {
-        method: "POST",
-        data: { token, resource },
-        headers: { "Content-Type": "application/json" },
+      return await this.makeRequest(`/policy/permissions/${resource}`, {
+        method: "GET",
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json" 
+        },
       });
     } catch (error) {
       console.error("Get permissions failed:", error.message);
