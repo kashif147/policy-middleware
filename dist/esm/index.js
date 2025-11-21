@@ -4,8 +4,8 @@
  * Exports the policy middleware and client for use across microservices
  */
 
-const PolicyMiddleware = require("./policy.middleware");
-const PolicyClient = require("./policyClient");
+import PolicyMiddleware from "./policy.middleware.js";
+import PolicyClient from "./policyClient.js";
 
 // Create default policy middleware instance
 const createDefaultPolicyMiddleware = (baseURL, options = {}) => {
@@ -21,7 +21,14 @@ const createDefaultPolicyMiddleware = (baseURL, options = {}) => {
 // Default instance (requires baseURL to be set)
 const defaultPolicyMiddleware = null;
 
-module.exports = {
+export {
+  PolicyMiddleware,
+  PolicyClient,
+  createDefaultPolicyMiddleware,
+  defaultPolicyMiddleware,
+};
+
+export default {
   PolicyMiddleware,
   PolicyClient,
   createDefaultPolicyMiddleware,

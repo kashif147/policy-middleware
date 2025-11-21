@@ -1,14 +1,29 @@
 {
   "name": "@membership/policy-middleware",
   "version": "1.0.0",
-  "description": "Shared policy middleware for membership microservices with centralized RBAC",
-  "main": "src/index.js",
+  "description": "Shared policy middleware for membership microservices with centralized RBAC and support for both CommonJS and ESM",
+  "main": "dist/index.js",
+  "module": "dist/esm/index.js",
   "exports": {
-    ".": "./src/index.js",
-    "./middleware": "./src/policy.middleware.js",
-    "./client": "./src/policyClient.js"
+    ".": {
+      "require": "./dist/index.js",
+      "import": "./dist/esm/index.js"
+    },
+    "./middleware": {
+      "require": "./dist/policy.middleware.js",
+      "import": "./dist/esm/policy.middleware.js"
+    },
+    "./client": {
+      "require": "./dist/policyClient.js",
+      "import": "./dist/esm/policyClient.js"
+    }
   },
   "scripts": {
+    "build": "npm run build:cjs && npm run build:esm",
+    "build:cjs": "node scripts/build-cjs.js",
+    "build:esm": "node scripts/build-esm.js",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
     "test": "echo 'No tests specified'",
     "lint": "echo 'No linting configured'",
     "version": "git add -A",
@@ -35,10 +50,12 @@
     "node": ">=16.0.0"
   },
   "files": [
+    "dist/",
     "src/",
     "README.md"
   ],
   "dependencies": {
+    "@membership/policy-middleware": "github:kashif147/policy-middleware",
     "axios": "^1.12.2"
   },
   "peerDependencies": {
