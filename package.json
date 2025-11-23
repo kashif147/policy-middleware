@@ -55,7 +55,6 @@
     "README.md"
   ],
   "dependencies": {
-    "@membership/policy-middleware": "github:kashif147/policy-middleware",
     "axios": "^1.12.2"
   },
   "peerDependencies": {
