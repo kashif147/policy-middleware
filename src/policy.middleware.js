@@ -76,7 +76,25 @@ class PolicyMiddleware {
         let result;
 
         // Check if auth bypass is enabled
+        // SECURITY: Never allow bypass on authentication endpoints
+        const authEndpoints = ['/login', '/signin', '/signup', '/register', '/auth'];
+        const isAuthEndpoint = authEndpoints.some(endpoint => 
+          req.path.toLowerCase().includes(endpoint.toLowerCase())
+        );
+        
         if (process.env.AUTH_BYPASS_ENABLED === "true") {
+          if (isAuthEndpoint) {
+            console.error(
+              `[POLICY_MIDDLEWARE] SECURITY ERROR: Bypass attempted on authentication endpoint: ${req.path}`
+            );
+            return res.status(403).json({
+              success: false,
+              error: "Authentication bypass is not allowed for authentication endpoints",
+              code: "SECURITY_VIOLATION",
+              status: 403,
+            });
+          }
+          
           console.log(
             `[POLICY_MIDDLEWARE] Auth bypass enabled, granting access for ${resource}:${action}`
           );
