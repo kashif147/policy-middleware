@@ -6,7 +6,7 @@
 
 import PolicyMiddleware from "./policy.middleware.js";
 import PolicyClient from "./policyClient.js";
-import gatewaySecurity from "./gatewaySecurity.js";
+import * as gatewaySecurity from "./gatewaySecurity.js";
 
 // Create default policy middleware instance
 const createDefaultPolicyMiddleware = (baseURL, options = {}) => {
