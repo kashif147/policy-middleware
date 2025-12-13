@@ -1,9 +1,9 @@
 /**
  * Gateway Header Security Validation
- * 
+ *
  * Shared security module for validating gateway headers
  * Prevents spoofing attacks and implements OWASP Top 10 security controls
- * 
+ *
  * This module is part of @membership/policy-middleware package
  */
 
@@ -20,7 +20,7 @@ function logSecurityEvent(eventType, details) {
     eventType,
     ...details,
   };
-  
+
   // Log to console (in production, this should go to a logging service)
   if (process.env.NODE_ENV === "production") {
     // In production, use structured logging
@@ -29,7 +29,7 @@ function logSecurityEvent(eventType, details) {
     // In development, use readable format
     console.log(`[Security Event] ${eventType}:`, details);
   }
-  
+
   // Emit event for external monitoring (if event emitter is available)
   if (typeof process.emit === "function") {
     process.emit("security:event", logEntry);
@@ -47,10 +47,11 @@ function verifyGatewaySignature(req) {
   const timestamp = req.headers["x-gateway-timestamp"];
   const userId = req.headers["x-user-id"];
   const tenantId = req.headers["x-tenant-id"];
-  const clientIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || 
-                   req.headers["x-real-ip"] || 
-                   req.ip || 
-                   req.connection?.remoteAddress;
+  const clientIp =
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.headers["x-real-ip"] ||
+    req.ip ||
+    req.connection?.remoteAddress;
 
   if (!signature || !timestamp || !userId || !tenantId) {
     logSecurityEvent("SIGNATURE_VALIDATION_FAILED", {
@@ -100,9 +101,9 @@ function verifyGatewaySignature(req) {
       Buffer.from(signature),
       Buffer.from(expectedSig)
     );
-    
+
     const duration = Date.now() - startTime;
-    
+
     if (isValid) {
       logSecurityEvent("SIGNATURE_VALIDATION_SUCCESS", {
         clientIp,
@@ -120,7 +121,7 @@ function verifyGatewaySignature(req) {
         severity: "HIGH",
       });
     }
-    
+
     return isValid;
   } catch (error) {
     logSecurityEvent("SIGNATURE_VALIDATION_ERROR", {
@@ -177,9 +178,9 @@ function verifyGatewayIP(req) {
     }
     return clientIp === allowedIp;
   });
-  
+
   const duration = Date.now() - startTime;
-  
+
   if (isValid) {
     logSecurityEvent("IP_VALIDATION_SUCCESS", {
       clientIp,
@@ -195,7 +196,7 @@ function verifyGatewayIP(req) {
       severity: "HIGH",
     });
   }
-  
+
   return isValid;
 }
 
@@ -280,13 +281,14 @@ function isTokenExpired(req) {
  */
 function validateGatewayRequest(req) {
   const startTime = Date.now();
-  const clientIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || 
-                   req.headers["x-real-ip"] || 
-                   req.ip || 
-                   req.connection?.remoteAddress;
+  const clientIp =
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.headers["x-real-ip"] ||
+    req.ip ||
+    req.connection?.remoteAddress;
   const userId = req.headers["x-user-id"];
   const tenantId = req.headers["x-tenant-id"];
-  
+
   // Check if gateway headers are present
   const jwtVerified = req.headers["x-jwt-verified"];
   const authSource = req.headers["x-auth-source"];
