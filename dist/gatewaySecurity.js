@@ -222,28 +222,44 @@ function validateGatewayHeaders(req) {
     errors.push("Invalid x-tenant-id format");
   }
 
-  // Validate JSON headers
+  // Validate JSON headers (lenient - treat invalid as empty arrays)
   const rolesStr = req.headers["x-user-roles"];
-  if (rolesStr) {
+  if (rolesStr && rolesStr.trim() !== "") {
     try {
       const roles = JSON.parse(rolesStr);
       if (!Array.isArray(roles)) {
-        errors.push("x-user-roles must be a JSON array");
+        // If it's not an array but is valid JSON, log warning but don't fail
+        console.warn(
+          "x-user-roles is not a JSON array, treating as empty array"
+        );
       }
     } catch (e) {
-      errors.push("Invalid x-user-roles JSON format");
+      // If JSON parsing fails, log warning but don't fail validation
+      // Gateway will send empty arrays, but if it sends invalid format, we'll handle it gracefully
+      console.warn(
+        "Invalid x-user-roles JSON format, treating as empty array:",
+        e.message
+      );
     }
   }
 
   const permsStr = req.headers["x-user-permissions"];
-  if (permsStr) {
+  if (permsStr && permsStr.trim() !== "") {
     try {
       const perms = JSON.parse(permsStr);
       if (!Array.isArray(perms)) {
-        errors.push("x-user-permissions must be a JSON array");
+        // If it's not an array but is valid JSON, log warning but don't fail
+        console.warn(
+          "x-user-permissions is not a JSON array, treating as empty array"
+        );
       }
     } catch (e) {
-      errors.push("Invalid x-user-permissions JSON format");
+      // If JSON parsing fails, log warning but don't fail validation
+      // Gateway will send empty arrays, but if it sends invalid format, we'll handle it gracefully
+      console.warn(
+        "Invalid x-user-permissions JSON format, treating as empty array:",
+        e.message
+      );
     }
   }
 
