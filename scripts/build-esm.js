@@ -19,6 +19,10 @@ function convertToESM(content) {
       if (modulePath.startsWith(".") && !modulePath.endsWith(".js")) {
         modulePath += ".js";
       }
+      // For gatewaySecurity, use namespace import since it has named exports
+      if (modulePath.includes("gatewaySecurity")) {
+        return `import * as ${varName} from "${modulePath}";`;
+      }
       return `import ${varName} from "${modulePath}";`;
     }
   );
