@@ -6,6 +6,7 @@
 
 const PolicyMiddleware = require("./policy.middleware");
 const PolicyClient = require("./policyClient");
+const gatewaySecurity = require("./gatewaySecurity");
 
 // Create default policy middleware instance
 const createDefaultPolicyMiddleware = (baseURL, options = {}) => {
@@ -24,6 +25,7 @@ const defaultPolicyMiddleware = null;
 module.exports = {
   PolicyMiddleware,
   PolicyClient,
+  gatewaySecurity,
   createDefaultPolicyMiddleware,
   defaultPolicyMiddleware,
 };

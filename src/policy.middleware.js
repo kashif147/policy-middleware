@@ -24,21 +24,8 @@ class PolicyMiddleware {
         console.log(`=== POLICY MIDDLEWARE START: ${resource}:${action} ===`);
         console.log("Policy service URL:", this.policyClient.baseUrl);
 
-        const token = req.headers.authorization?.replace("Bearer ", "");
-
-        if (!token) {
-          console.log("No authorization token found");
-          return res.status(401).json({
-            success: false,
-            error: "Authorization token required",
-            code: "UNAUTHORIZED",
-            status: 401,
-          });
-        }
-
         // Extract context from request
         // Filter out 'id' from body/query if it's not a route parameter to avoid validation issues
-        // The 'id' field should only come from route parameters (req.params.id)
         const bodyContext = { ...req.body };
         const queryContext = { ...req.query };
         
@@ -48,17 +35,61 @@ class PolicyMiddleware {
           delete queryContext.id;
         }
         
+        // Check for gateway-verified headers first
+        const jwtVerified = req.headers["x-jwt-verified"];
+        const authSource = req.headers["x-auth-source"];
+        const hasGatewayHeaders = jwtVerified === "true" && authSource === "gateway";
+
+        // Build context with user info from gateway headers or request context
+        let userId, tenantId, userRoles, userPermissions;
+        
+        if (hasGatewayHeaders) {
+          // Read from gateway headers
+          userId = req.headers["x-user-id"];
+          tenantId = req.headers["x-tenant-id"];
+          
+          try {
+            const rolesStr = req.headers["x-user-roles"] || "[]";
+            const rolesArray = JSON.parse(rolesStr);
+            userRoles = Array.isArray(rolesArray) ? rolesArray : [];
+          } catch (e) {
+            console.warn("Failed to parse x-user-roles:", e.message);
+            userRoles = [];
+          }
+          
+          try {
+            const permsStr = req.headers["x-user-permissions"] || "[]";
+            const permsArray = JSON.parse(permsStr);
+            userPermissions = Array.isArray(permsArray) ? permsArray : [];
+          } catch (e) {
+            console.warn("Failed to parse x-user-permissions:", e.message);
+            userPermissions = [];
+          }
+        } else {
+          // Fallback to request context (from auth middleware)
+          userId = req.ctx?.userId || req.user?.id || req.userId;
+          tenantId = req.ctx?.tenantId || req.user?.tenantId || req.tenantId;
+          userRoles = req.ctx?.roles || req.user?.roles || req.roles || [];
+          userPermissions = req.ctx?.permissions || req.user?.permissions || req.permissions || [];
+        }
+
+        if (!userId || !tenantId) {
+          console.log("Missing user context (userId or tenantId)");
+          return res.status(401).json({
+            success: false,
+            error: "Authentication required",
+            code: "UNAUTHORIZED",
+            status: 401,
+          });
+        }
+        
         const context = {
-          userId: req.ctx?.userId || req.user?.id || req.userId,
-          tenantId: req.ctx?.tenantId || req.user?.tenantId || req.tenantId,
-          userRoles: req.ctx?.roles || req.user?.roles || req.roles || [],
-          userPermissions:
-            req.ctx?.permissions ||
-            req.user?.permissions ||
-            req.permissions ||
-            [],
-          ...queryContext, // Include query params (id filtered if not route param)
-          ...bodyContext, // Include request body (id filtered if not route param)
+          userId,
+          tenantId,
+          userRoles,
+          userPermissions,
+          ...queryContext,
+          ...bodyContext,
         };
         
         // Final safety check: remove 'id' from context if it's not from route params
@@ -70,7 +101,7 @@ class PolicyMiddleware {
         console.log(
           `[POLICY_MIDDLEWARE] Delegating authorization to user service for ${resource}:${action}`
         );
-        console.log(`[POLICY_MIDDLEWARE] Token: ${token.substring(0, 20)}...`);
+        console.log(`[POLICY_MIDDLEWARE] User: ${userId}, Tenant: ${tenantId}`);
         console.log(`[POLICY_MIDDLEWARE] Context:`, context);
 
         let result;
@@ -99,53 +130,49 @@ class PolicyMiddleware {
             `[POLICY_MIDDLEWARE] Auth bypass enabled, granting access for ${resource}:${action}`
           );
 
-          // Still validate token to extract user info, but skip authorization
-          let userFromToken = null;
-          try {
-            const response = await this.policyClient.makeRequest(
-              "/token/validate",
-              {
-                method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
-              }
-            );
-            if (response.success && response.user) {
-              userFromToken = response.user;
-              console.log(
-                "[POLICY_MIDDLEWARE] Token validated, user extracted:",
-                userFromToken
-              );
-            }
-          } catch (error) {
-            console.log(
-              "[POLICY_MIDDLEWARE] Token validation failed, using fallback:",
-              error.message
-            );
-          }
-
           result = {
             success: true,
             decision: "PERMIT",
             reason: "AUTH_BYPASS_ENABLED",
-            user: userFromToken ||
-              req.user || {
-                id: context.userId || "bypass-user-id",
-                userType: "PORTAL",
-                tenantId: context.tenantId || "default-tenant",
-                roles: [],
-                permissions: [],
-              },
+            user: req.user || {
+              id: userId,
+              userType: req.headers["x-user-type"] || "PORTAL",
+              tenantId: tenantId,
+              roles: userRoles,
+              permissions: userPermissions,
+            },
             resource,
             action,
             timestamp: new Date().toISOString(),
           };
         } else {
-          result = await this.policyClient.evaluatePolicy(
-            token,
-            resource,
-            action,
-            context
-          );
+          // Pass gateway headers or context to policy client
+          if (hasGatewayHeaders) {
+            // Forward gateway headers to user-service
+            result = await this.policyClient.evaluateWithHeaders(
+              req.headers,
+              resource,
+              action,
+              context
+            );
+          } else {
+            // Fallback: use token for legacy support
+            const token = req.headers.authorization?.replace("Bearer ", "");
+            if (!token) {
+              return res.status(401).json({
+                success: false,
+                error: "Authorization token required",
+                code: "UNAUTHORIZED",
+                status: 401,
+              });
+            }
+            result = await this.policyClient.evaluatePolicy(
+              token,
+              resource,
+              action,
+              context
+            );
+          }
         }
 
         console.log(

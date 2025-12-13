@@ -30,14 +30,41 @@ router.get(
 );
 ```
 
+### Gateway Security Module
+
+The package includes a shared gateway security module for validating gateway headers:
+
+```javascript
+const { gatewaySecurity } = require("@membership/policy-middleware/security");
+
+// Validate gateway request
+const validation = gatewaySecurity.validateGatewayRequest(req);
+if (!validation.valid) {
+  return res.status(401).json({ error: validation.reason });
+}
+```
+
+**Security Features:**
+- HMAC signature verification
+- IP whitelist validation
+- Header format validation
+- Token expiration checking
+- Replay attack prevention (5-minute window)
+- OWASP Top 10 compliance
+
 ### Environment Variables
 
 - `POLICY_SERVICE_URL`: URL of the centralized policy service (user-service)
 - `AUTH_BYPASS_ENABLED`: Set to 'true' to bypass authentication (development only)
+- `GATEWAY_SECRET`: Shared secret for HMAC signature verification
+- `GATEWAY_IPS`: Comma-separated list of gateway IP addresses
+- `GATEWAY_SIGNATURE_ENABLED`: Enable/disable signature verification (default: true)
+- `GATEWAY_IP_VALIDATION`: Enable/disable IP validation (default: true)
 
 ### Features
 
 - **Centralized Authorization**: All authorization decisions made by user-service
+- **Gateway Security**: OWASP-compliant gateway header validation
 - **Caching**: Built-in request caching for performance
 - **Retry Logic**: Automatic retries with exponential backoff
 - **Error Handling**: Comprehensive error handling and logging

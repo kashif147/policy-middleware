@@ -16,6 +16,10 @@
     "./client": {
       "require": "./dist/policyClient.js",
       "import": "./dist/esm/policyClient.js"
+    },
+    "./security": {
+      "require": "./dist/gatewaySecurity.js",
+      "import": "./dist/esm/gatewaySecurity.js"
     }
   },
   "scripts": {

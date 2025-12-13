@@ -74,7 +74,106 @@ class PolicyClient {
   }
 
   /**
-   * Get user permissions for a specific resource
+   * Evaluate policy using gateway headers instead of token
+   * @param {Object} headers - Request headers (including gateway headers)
+   * @param {string} resource - Resource being accessed
+   * @param {string} action - Action being performed
+   * @param {Object} context - Additional context
+   * @returns {Promise<Object>} Policy decision
+   */
+  async evaluateWithHeaders(headers, resource, action, context = {}) {
+    // Create cache key from user context instead of token
+    const userId = headers["x-user-id"] || context.userId;
+    const tenantId = headers["x-tenant-id"] || context.tenantId;
+    const cacheKey = this.getCacheKeyFromContext(userId, tenantId, resource, action, context);
+
+    // Check cache first
+    if (this.cache.has(cacheKey)) {
+      const cached = this.cache.get(cacheKey);
+      if (Date.now() - cached.timestamp < this.cacheTimeout) {
+        return cached.result;
+      }
+      this.cache.delete(cacheKey);
+    }
+
+    try {
+      // Forward gateway headers to user-service
+      const forwardHeaders = {
+        "Content-Type": "application/json",
+      };
+
+      // Forward all gateway authentication headers
+      if (headers["x-jwt-verified"]) forwardHeaders["x-jwt-verified"] = headers["x-jwt-verified"];
+      if (headers["x-auth-source"]) forwardHeaders["x-auth-source"] = headers["x-auth-source"];
+      if (headers["x-user-id"]) forwardHeaders["x-user-id"] = headers["x-user-id"];
+      if (headers["x-tenant-id"]) forwardHeaders["x-tenant-id"] = headers["x-tenant-id"];
+      if (headers["x-user-email"]) forwardHeaders["x-user-email"] = headers["x-user-email"];
+      if (headers["x-user-type"]) forwardHeaders["x-user-type"] = headers["x-user-type"];
+      if (headers["x-user-roles"]) forwardHeaders["x-user-roles"] = headers["x-user-roles"];
+      if (headers["x-user-permissions"]) forwardHeaders["x-user-permissions"] = headers["x-user-permissions"];
+
+      const response = await this.makeRequest("/policy/evaluate", {
+        method: "POST",
+        data: { resource, action, context }, // No token in body
+        headers: forwardHeaders,
+      });
+
+      // Cache successful results
+      if (response.success) {
+        this.cache.set(cacheKey, {
+          result: response,
+          timestamp: Date.now(),
+        });
+      }
+
+      return response;
+    } catch (error) {
+      console.error("Policy evaluation failed:", error.message);
+      return {
+        success: false,
+        decision: "DENY",
+        reason: "POLICY_SERVICE_ERROR",
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Get user permissions for a specific resource using headers
+   * @param {Object} headers - Request headers (including gateway headers)
+   * @param {string} resource - Resource name
+   * @returns {Promise<Object>} User permissions
+   */
+  async getPermissionsWithHeaders(headers, resource) {
+    try {
+      const forwardHeaders = {
+        "Content-Type": "application/json",
+      };
+
+      // Forward gateway headers
+      if (headers["x-jwt-verified"]) forwardHeaders["x-jwt-verified"] = headers["x-jwt-verified"];
+      if (headers["x-auth-source"]) forwardHeaders["x-auth-source"] = headers["x-auth-source"];
+      if (headers["x-user-id"]) forwardHeaders["x-user-id"] = headers["x-user-id"];
+      if (headers["x-tenant-id"]) forwardHeaders["x-tenant-id"] = headers["x-tenant-id"];
+      if (headers["x-user-roles"]) forwardHeaders["x-user-roles"] = headers["x-user-roles"];
+      if (headers["x-user-permissions"]) forwardHeaders["x-user-permissions"] = headers["x-user-permissions"];
+
+      return await this.makeRequest(`/policy/permissions/${resource}`, {
+        method: "GET",
+        headers: forwardHeaders,
+      });
+    } catch (error) {
+      console.error("Get permissions failed:", error.message);
+      return {
+        success: false,
+        permissions: [],
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Get user permissions for a specific resource (legacy token-based)
    * @param {string} token - JWT token
    * @param {string} resource - Resource name
    * @returns {Promise<Object>} User permissions
@@ -156,6 +255,22 @@ class PolicyClient {
   hashToken(token) {
     if (!token || token.length < 30) return token;
     return token.substring(0, 20) + "..." + token.substring(token.length - 10);
+  }
+
+  /**
+   * Generate cache key from context (for header-based requests)
+   * @param {string} userId - User ID
+   * @param {string} tenantId - Tenant ID
+   * @param {string} resource - Resource name
+   * @param {string} action - Action name
+   * @param {Object} context - Context object
+   * @returns {string} Cache key
+   */
+  getCacheKeyFromContext(userId, tenantId, resource, action, context) {
+    const userHash = userId ? userId.substring(0, 8) : "no-user";
+    const tenantHash = tenantId ? tenantId.substring(0, 8) : "no-tenant";
+    const contextHash = this.hashObject(context);
+    return `${userHash}:${tenantHash}:${resource}:${action}:${contextHash}`;
   }
 
   /**

@@ -6,6 +6,7 @@
 
 import PolicyMiddleware from "./policy.middleware.js";
 import PolicyClient from "./policyClient.js";
+import gatewaySecurity from "./gatewaySecurity.js";
 
 // Create default policy middleware instance
 const createDefaultPolicyMiddleware = (baseURL, options = {}) => {
@@ -24,6 +25,7 @@ const defaultPolicyMiddleware = null;
 export {
   PolicyMiddleware,
   PolicyClient,
+  gatewaySecurity,
   createDefaultPolicyMiddleware,
   defaultPolicyMiddleware,
 };
@@ -31,6 +33,7 @@ export {
 export default {
   PolicyMiddleware,
   PolicyClient,
+  gatewaySecurity,
   createDefaultPolicyMiddleware,
   defaultPolicyMiddleware,
 };
