@@ -64,8 +64,19 @@ function validateGatewayHeaders(req) {
     };
   }
 
-  // 2. Required identity headers
-  if (!headers["x-user-id"] || !headers["x-tenant-id"]) {
+  // 2. Required identity headers (must be non-empty)
+  // Gateway sets these from JWT payload:
+  //   user_id = payload.sub or payload.id or ""
+  //   tenant_id = payload.tenantId or payload.tid or ""
+  // We require non-empty values for security
+  const userId = headers["x-user-id"];
+  const tenantId = headers["x-tenant-id"];
+  if (
+    !userId ||
+    !tenantId ||
+    (typeof userId === "string" && userId.trim() === "") ||
+    (typeof tenantId === "string" && tenantId.trim() === "")
+  ) {
     return {
       valid: false,
       reason: "Missing required gateway identity headers",
@@ -108,17 +119,55 @@ function validateGatewayHeaders(req) {
 function verifyGatewaySignature(req) {
   const signature = req.headers["x-gateway-signature"];
   const timestamp = req.headers["x-gateway-timestamp"];
+  // Get userId/tenantId from headers (already validated in validateGatewayHeaders)
   const userId = req.headers["x-user-id"];
   const tenantId = req.headers["x-tenant-id"];
 
-  // if (!signature || !timestamp || !userId || !tenantId) {printenv | grep GATEWAY_SECRET
-  if (![signature, timestamp, userId, tenantId].every(Boolean)) {
+  // Validate all required signature headers are present and non-empty
+  if (!signature || !timestamp || !userId || !tenantId) {
     return {
       valid: false,
       reason: "Missing gateway signature headers",
     };
   }
 
+  // Ensure values are not just whitespace (safe string check)
+  const isEmpty = (val) => typeof val === "string" && val.trim() === "";
+  if (
+    isEmpty(signature) ||
+    isEmpty(timestamp) ||
+    isEmpty(userId) ||
+    isEmpty(tenantId)
+  ) {
+    return {
+      valid: false,
+      reason: "Empty gateway signature headers",
+    };
+  }
+
+  // Prevent replay attacks (5 minute window)
+  // Gateway sends timestamp as: tostring(ngx.time() * 1000)
+  // ngx.time() returns seconds, * 1000 converts to milliseconds
+  // Result is a string representation of milliseconds since epoch
+  const now = Date.now();
+  const headerTime = parseInt(timestamp, 10);
+  if (isNaN(headerTime) || headerTime <= 0) {
+    return {
+      valid: false,
+      reason: "Invalid timestamp format",
+    };
+  }
+  // Allow 5 minute window (300000ms = 5 minutes)
+  // This matches typical replay attack prevention windows
+  const timeDiff = Math.abs(now - headerTime);
+  if (timeDiff > 300000) {
+    return {
+      valid: false,
+      reason: "Timestamp outside acceptable window",
+    };
+  }
+
+  // Get secret from environment (matches gateway: os.getenv("GATEWAY_SECRET"))
   const secret = process.env.GATEWAY_SECRET;
   if (!secret) {
     return {
@@ -127,18 +176,38 @@ function verifyGatewaySignature(req) {
     };
   }
 
+  // Build signature payload exactly as gateway does:
+  // table.concat({user_id, tenant_id, timestamp}, "|")
+  // Gateway uses pipe separator "|" to join: userId|tenantId|timestamp
   const payload = `${userId}|${tenantId}|${timestamp}`;
-  console.warn("[GATEWAY_SECURITY] SERVICE_HMAC_PAYLOAD=", payload);
-  console.error("[GATEWAY_SECURITY] SERVICE_HMAC_PAYLOAD=", payload);
+
+  // Generate HMAC-SHA256 signature (matches gateway: resty_hmac with SHA256)
+  // Gateway: hmac:update(signature_payload) then str.to_hex(hmac:final())
   const expectedSignature = crypto
     .createHmac("sha256", secret)
     .update(payload)
-    .digest("hex");
+    .digest("hex")
+    .toLowerCase(); // Ensure lowercase hex (gateway uses str.to_hex which is lowercase)
 
-  if (expectedSignature !== signature) {
+  // Compare signatures (case-sensitive string comparison)
+  // Normalize received signature to lowercase for comparison
+  const receivedSignature = (signature || "").toLowerCase();
+
+  if (expectedSignature !== receivedSignature) {
+    // Debug logging for signature mismatch
+    console.warn("[GATEWAY_SECURITY] Signature mismatch:", {
+      received: signature,
+      receivedNormalized: receivedSignature,
+      expected: expectedSignature,
+      payload: payload,
+      userId,
+      tenantId,
+      timestamp,
+      secretLength: secret ? secret.length : 0,
+    });
     return {
       valid: false,
-      reason: "Invalid gateway signature",
+      reason: "Invalid signature",
     };
   }
 
@@ -176,7 +245,7 @@ function validateGatewayRequest(req, options = {}) {
   // 3. Gateway signature verification
   const sigCheck = verifyGatewaySignature(req);
   if (!sigCheck.valid) {
-    logSecurityEvent("GATEWAY_VALIDATION_FAILED", {
+    logSecurityEvent("SIGNATURE_VALIDATION_FAILED", {
       reason: sigCheck.reason,
       clientIp,
       userId,
