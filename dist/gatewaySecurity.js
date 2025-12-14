@@ -305,6 +305,39 @@ function validateGatewayHeaders(req) {
 
 //   return now > expiryWithGrace;
 // }
+function isTokenExpired(req) {
+  const expiresAt = req.headers["x-token-expires-at"];
+  if (!expiresAt) {
+    // No expiry header means gateway did not enforce expiry
+    return false;
+  }
+
+  const expirySeconds = parseInt(expiresAt, 10);
+  if (isNaN(expirySeconds)) {
+    console.warn("Invalid x-token-expires-at format:", expiresAt);
+    return false;
+  }
+
+  // JWT exp is in seconds → convert to milliseconds
+  const expiryMs = expirySeconds * 1000;
+
+  const gracePeriodMs = parseInt(
+    process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || "60000",
+    10
+  );
+
+  const now = Date.now();
+  const expiryWithGrace = expiryMs + gracePeriodMs;
+
+  // Optional diagnostic logging
+  if (now > expiryMs && now <= expiryWithGrace) {
+    console.warn(
+      `Token expired ${now - expiryMs}ms ago but still within grace period`
+    );
+  }
+
+  return now > expiryWithGrace;
+}
 
 /**
  * Comprehensive gateway header validation
@@ -354,40 +387,40 @@ function validateGatewayRequest(req) {
   }
 
   // Check token expiration
-  // if (isTokenExpired(req)) {
-  //   const expiresAt = req.headers["x-token-expires-at"];
-  //   const expiryTime = expiresAt ? parseInt(expiresAt, 10) : null;
-  //   const now = Date.now();
-  //   const expiredBy =
-  //     expiryTime && !isNaN(expiryTime) ? now - expiryTime : null;
-  //   const gracePeriodMs = parseInt(
-  //     process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || "60000",
-  //     10
-  //   );
+  if (isTokenExpired(req)) {
+    const expiresAt = req.headers["x-token-expires-at"];
+    const expiryTime = expiresAt ? parseInt(expiresAt, 10) : null;
+    const now = Date.now();
+    const expiredBy =
+      expiryTime && !isNaN(expiryTime) ? now - expiryTime : null;
+    const gracePeriodMs = parseInt(
+      process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || "60000",
+      10
+    );
 
-  //   logSecurityEvent("GATEWAY_VALIDATION_FAILED", {
-  //     reason: "Token expired",
-  //     clientIp,
-  //     userId,
-  //     tenantId,
-  //     duration: Date.now() - startTime,
-  //     severity: "MEDIUM",
-  //     ...(expiredBy !== null && {
-  //       expiredByMs: expiredBy,
-  //       expiredBySeconds: Math.round(expiredBy / 1000),
-  //       gracePeriodMs,
-  //       expiryTime,
-  //       currentTime: now,
-  //     }),
-  //   });
-  //   return {
-  //     valid: false,
-  //     reason:
-  //       expiredBy !== null
-  //         ? `Token expired ${Math.round(expiredBy / 1000)}s ago`
-  //         : "Token expired",
-  //   };
-  // }
+    logSecurityEvent("GATEWAY_VALIDATION_FAILED", {
+      reason: "Token expired",
+      clientIp,
+      userId,
+      tenantId,
+      duration: Date.now() - startTime,
+      severity: "MEDIUM",
+      ...(expiredBy !== null && {
+        expiredByMs: expiredBy,
+        expiredBySeconds: Math.round(expiredBy / 1000),
+        gracePeriodMs,
+        expiryTime,
+        currentTime: now,
+      }),
+    });
+    return {
+      valid: false,
+      reason:
+        expiredBy !== null
+          ? `Token expired ${Math.round(expiredBy / 1000)}s ago`
+          : "Token expired",
+    };
+  }
 
   // Verify signature (if enabled)
   if (process.env.GATEWAY_SIGNATURE_ENABLED !== "false") {
@@ -418,7 +451,7 @@ module.exports = {
   verifyGatewaySignature,
   verifyGatewayIP,
   validateGatewayHeaders,
-  // isTokenExpired,
+  isTokenExpired,
   validateGatewayRequest,
   logSecurityEvent, // Export for external use
 };
