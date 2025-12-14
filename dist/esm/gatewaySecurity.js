@@ -99,7 +99,9 @@ function verifyGatewaySignature(req) {
     };
   }
 
-  secret = secret.trim();
+  // Match Lua behavior: only trim trailing whitespace (gsub("%s+$", ""))
+  // Lua: gateway_secret:gsub("%s+$", "")
+  secret = secret.replace(/\s+$/, "");
   if (!secret) {
     return {
       valid: false,
@@ -120,6 +122,21 @@ function verifyGatewaySignature(req) {
   const receivedSignature = signature.trim().toLowerCase();
 
   if (expectedSignature !== receivedSignature) {
+    // Debug logging for signature mismatch
+    console.log("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:", {
+      payload,
+      userId,
+      tenantId,
+      timestamp,
+      timestampType: typeof timestamp,
+      secretLength: secret.length,
+      secretFirstChar: secret[0],
+      secretLastChar: secret[secret.length - 1],
+      expectedSignature,
+      receivedSignature,
+      expectedLength: expectedSignature.length,
+      receivedLength: receivedSignature.length,
+    });
     return {
       valid: false,
       reason: "Invalid signature",
