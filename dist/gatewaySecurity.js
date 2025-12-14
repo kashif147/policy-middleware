@@ -182,7 +182,20 @@ function verifyGatewaySignature(req) {
   // Trim trailing whitespace (defensive, in case env var has trailing spaces)
   secret = secret.trim();
 
+  // Validate secret is not empty after trimming
+  if (secret.length === 0) {
+    console.error(
+      "[GATEWAY_SECURITY] ERROR: GATEWAY_SECRET is empty after trimming"
+    );
+    return {
+      valid: false,
+      reason: "Gateway secret is empty",
+    };
+  }
+
   // Log secret info (first/last char only for security)
+  // Note: secret_len=36 in gateway logs refers to JWT_SECRET, not GATEWAY_SECRET
+  // GATEWAY_SECRET can be any length - just needs to match between gateway and service
   console.error("[GATEWAY_SECURITY] SECRET_INFO:", {
     length: secret.length,
     firstChar: secret[0],
