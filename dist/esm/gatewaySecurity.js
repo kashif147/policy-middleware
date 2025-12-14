@@ -90,7 +90,7 @@ function verifyGatewaySignature(req) {
     return false;
   }
 
-  const message = `${userId}:${tenantId}:${timestamp}`;
+  const message = `${userId}|${tenantId}|${timestamp}`;
   const expectedSig = crypto
     .createHmac("sha256", gatewaySecret)
     .update(message)
@@ -274,20 +274,61 @@ function validateGatewayHeaders(req) {
  * @param {Object} req - Express request object
  * @returns {boolean} True if expired
  */
+// function isTokenExpired(req) {
+//   const expiresAt = req.headers["x-token-expires-at"];
+//   if (!expiresAt) {
+//     // If no expiration header, assume valid (gateway should set this)
+//     return false;
+//   }
+
+//   const expiryTime = parseInt(expiresAt, 10);
+//   if (isNaN(expiryTime)) {
+//     console.warn("Invalid x-token-expires-at format");
+//     return false; // Don't reject if format is wrong, just log
+//   }
+
+//   // Add grace period to handle clock skew and network latency (default 60 seconds)
+//   const gracePeriodMs = parseInt(
+//     process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || "60000",
+//     10
+//   );
+//   const now = Date.now();
+//   const expiryWithGrace = expiryTime + gracePeriodMs;
+
+//   // Log if token is expired but within grace period
+//   if (now > expiryTime && now <= expiryWithGrace) {
+//     const expiredBy = now - expiryTime;
+//     console.warn(
+//       `Token expired ${expiredBy}ms ago but within grace period (${gracePeriodMs}ms)`
+//     );
+//   }
+
+//   return now > expiryWithGrace;
+// }
 function isTokenExpired(req) {
   const expiresAt = req.headers["x-token-expires-at"];
   if (!expiresAt) {
-    // If no expiration header, assume valid (gateway should set this)
     return false;
   }
 
-  const expiryTime = parseInt(expiresAt, 10);
+  let expiryTime = parseInt(expiresAt, 10);
   if (isNaN(expiryTime)) {
     console.warn("Invalid x-token-expires-at format");
-    return false; // Don't reject if format is wrong, just log
+    return false;
   }
 
-  return Date.now() > expiryTime;
+  // Convert seconds → milliseconds if needed
+  if (expiryTime < 1e12) {
+    expiryTime = expiryTime * 1000;
+  }
+
+  const gracePeriodMs = parseInt(
+    process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || "60000",
+    10
+  );
+
+  const now = Date.now();
+  return now > expiryTime + gracePeriodMs;
 }
 
 /**
@@ -339,6 +380,16 @@ function validateGatewayRequest(req) {
 
   // Check token expiration
   if (isTokenExpired(req)) {
+    const expiresAt = req.headers["x-token-expires-at"];
+    const expiryTime = expiresAt ? parseInt(expiresAt, 10) : null;
+    const now = Date.now();
+    const expiredBy =
+      expiryTime && !isNaN(expiryTime) ? now - expiryTime : null;
+    const gracePeriodMs = parseInt(
+      process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || "60000",
+      10
+    );
+
     logSecurityEvent("GATEWAY_VALIDATION_FAILED", {
       reason: "Token expired",
       clientIp,
@@ -346,8 +397,21 @@ function validateGatewayRequest(req) {
       tenantId,
       duration: Date.now() - startTime,
       severity: "MEDIUM",
+      ...(expiredBy !== null && {
+        expiredByMs: expiredBy,
+        expiredBySeconds: Math.round(expiredBy / 1000),
+        gracePeriodMs,
+        expiryTime,
+        currentTime: now,
+      }),
     });
-    return { valid: false, reason: "Token expired" };
+    return {
+      valid: false,
+      reason:
+        expiredBy !== null
+          ? `Token expired ${Math.round(expiredBy / 1000)}s ago`
+          : "Token expired",
+    };
   }
 
   // Verify signature (if enabled)
