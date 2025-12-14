@@ -29,11 +29,3 @@ export {
   createDefaultPolicyMiddleware,
   defaultPolicyMiddleware,
 };
-
-export default {
-  PolicyMiddleware,
-  PolicyClient,
-  gatewaySecurity,
-  createDefaultPolicyMiddleware,
-  defaultPolicyMiddleware,
-};

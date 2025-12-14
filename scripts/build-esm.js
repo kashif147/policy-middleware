@@ -36,6 +36,7 @@ function convertToESM(content) {
         .split(",")
         .map((line) => line.trim())
         .filter(Boolean)
+        .filter((line) => !line.startsWith("//")) // Remove comment lines
         .map((line) => {
           // Handle property assignments like "name: value"
           if (line.includes(":")) {
@@ -46,7 +47,7 @@ function convertToESM(content) {
         })
         .join(",\n  ");
 
-      return `export {\n  ${exportNames},\n};\n\nexport default {\n  ${exportNames},\n};`;
+      return `export {\n  ${exportNames},\n};`;
     }
   );
 

@@ -115,11 +115,3 @@ export {
   mapReasonToErrorCode,
 };
 
-export default {
-  createAuthError,
-  createForbiddenError,
-  createValidationError,
-  GATEWAY_ERROR_CODES,
-  mapReasonToErrorCode,
-};
-

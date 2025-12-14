@@ -454,15 +454,4 @@ export {
   isTokenExpired,
   validateGatewayRequest,
   logSecurityEvent,
-  // Export for external use,
-};
-
-export default {
-  verifyGatewaySignature,
-  verifyGatewayIP,
-  validateGatewayHeaders,
-  isTokenExpired,
-  validateGatewayRequest,
-  logSecurityEvent,
-  // Export for external use,
 };
