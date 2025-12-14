@@ -168,18 +168,30 @@ function verifyGatewaySignature(req) {
   }
 
   // Get secret from environment (matches gateway: os.getenv("GATEWAY_SECRET"))
-  const secret = process.env.GATEWAY_SECRET;
+  // Note: Gateway trims JWT_SECRET but not GATEWAY_SECRET, but we'll trim defensively
+  let secret = process.env.GATEWAY_SECRET;
   if (!secret) {
     return {
       valid: false,
       reason: "Gateway secret not configured",
     };
   }
+  // Trim trailing whitespace (defensive, in case env var has trailing spaces)
+  secret = secret.trim();
 
   // Build signature payload exactly as gateway does:
   // table.concat({user_id, tenant_id, timestamp}, "|")
   // Gateway uses pipe separator "|" to join: userId|tenantId|timestamp
   const payload = `${userId}|${tenantId}|${timestamp}`;
+  
+  // Log payload for debugging (ALWAYS log to help diagnose)
+  console.error("[GATEWAY_SECURITY] SERVICE_HMAC_PAYLOAD=", payload);
+  console.error("[GATEWAY_SECURITY] SERVICE_HMAC_INPUTS:", {
+    userId,
+    tenantId,
+    timestamp,
+    payload,
+  });
   
   // Generate HMAC-SHA256 signature (matches gateway: resty_hmac with SHA256)
   // Gateway: hmac:update(signature_payload) then str.to_hex(hmac:final())
@@ -189,13 +201,22 @@ function verifyGatewaySignature(req) {
     .digest("hex")
     .toLowerCase(); // Ensure lowercase hex (gateway uses str.to_hex which is lowercase)
 
-  // Compare signatures (case-sensitive string comparison)
-  // Normalize received signature to lowercase for comparison
-  const receivedSignature = (signature || "").toLowerCase();
+  // Normalize received signature - trim whitespace and convert to lowercase
+  const receivedSignature = (signature || "").trim().toLowerCase();
+  
+  // Log both signatures for comparison
+  console.error("[GATEWAY_SECURITY] SIGNATURE_COMPARISON:", {
+    received: signature,
+    receivedNormalized: receivedSignature,
+    expected: expectedSignature,
+    match: expectedSignature === receivedSignature,
+    receivedLength: receivedSignature.length,
+    expectedLength: expectedSignature.length,
+  });
   
   if (expectedSignature !== receivedSignature) {
-    // Debug logging for signature mismatch
-    console.warn("[GATEWAY_SECURITY] Signature mismatch:", {
+    // Detailed debug logging for signature mismatch
+    console.error("[GATEWAY_SECURITY] Signature mismatch DETAILS:", {
       received: signature,
       receivedNormalized: receivedSignature,
       expected: expectedSignature,
@@ -204,6 +225,9 @@ function verifyGatewaySignature(req) {
       tenantId,
       timestamp,
       secretLength: secret ? secret.length : 0,
+      secretFirstChar: secret ? secret[0] : "none",
+      secretLastChar: secret ? secret[secret.length - 1] : "none",
+      payloadBytes: Buffer.from(payload).toString("hex"),
     });
     return {
       valid: false,
