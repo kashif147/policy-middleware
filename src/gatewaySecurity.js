@@ -9,28 +9,45 @@ const crypto = require("crypto");
  * Soft token expiry check (LOG ONLY – NEVER BLOCK)
  * x-token-expires-at is JWT exp (seconds)
  */
+// function isTokenExpired(req) {
+//   const raw = req.headers["x-token-expires-at"];
+//   if (!raw) return false;
+
+//   const expirySeconds = Number(raw);
+//   if (!Number.isFinite(expirySeconds)) return false;
+
+//   const expiryMs = expirySeconds * 1000;
+//   const now = Date.now();
+
+//   const graceMs = Number(process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || 60000);
+
+//   if (now > expiryMs + graceMs) {
+//     console.warn("Token appears expired but accepted (gateway verified)", {
+//       expiryMs,
+//       now,
+//       expiredByMs: now - expiryMs,
+//     });
+//     return true;
+//   }
+
+//   return false;
+// }
 function isTokenExpired(req) {
-  const raw = req.headers["x-token-expires-at"];
-  if (!raw) return false;
+  const expiresAtRaw = req.headers["x-token-expires-at"];
 
-  const expirySeconds = Number(raw);
-  if (!Number.isFinite(expirySeconds)) return false;
-
-  const expiryMs = expirySeconds * 1000;
-  const now = Date.now();
-
-  const graceMs = Number(process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || 60000);
-
-  if (now > expiryMs + graceMs) {
-    console.warn("Token appears expired but accepted (gateway verified)", {
-      expiryMs,
-      now,
-      expiredByMs: now - expiryMs,
-    });
-    return true;
+  if (!expiresAtRaw) {
+    return false;
   }
 
-  return false;
+  const expiresAt = Number(expiresAtRaw);
+  if (!Number.isFinite(expiresAt)) {
+    return false;
+  }
+
+  const now = Date.now();
+  const graceMs = Number(process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || 60000);
+
+  return now > expiresAt + graceMs;
 }
 
 /**
