@@ -1,12 +1,20 @@
 /**
  * Gateway Security Middleware
- * Node services MUST trust NGINX as the JWT authority.
- * JWT expiry is enforced ONLY at the gateway.
+ *
+ * Security model:
+ * - NGINX gateway is the SINGLE authority for JWT verification
+ * - JWT expiry is enforced ONLY at the gateway
+ * - Services trust gateway-injected headers
+ *
+ * This middleware:
+ * - Validates presence and shape of gateway headers
+ * - Performs SOFT token expiry logging (never blocks)
+ * - DOES NOT perform cryptographic verification
  */
-import crypto from "crypto";
 
 /**
- * Soft token expiry check (LOG ONLY – NEVER BLOCK)
+ * Soft token expiry check (LOG ONLY)
+ * Gateway already verified token.
  */
 function isTokenExpired(req) {
   const expiresAtRaw = req.headers["x-token-expires-at"];
@@ -27,7 +35,7 @@ function isTokenExpired(req) {
 function validateGatewayHeaders(req) {
   const headers = req.headers;
 
-  // 1. Gateway verification flag (MANDATORY)
+  // 1. Gateway verification flag (HARD REQUIREMENT)
   if (headers["x-jwt-verified"] !== "true") {
     return {
       valid: false,
@@ -51,115 +59,27 @@ function validateGatewayHeaders(req) {
     };
   }
 
-  // 3. Safe JSON parsing
+  // 3. Defensive JSON validation for roles and permissions
   try {
     if (headers["x-user-roles"]) {
       const roles = JSON.parse(headers["x-user-roles"]);
       if (!Array.isArray(roles)) {
+        console.warn("x-user-roles is not an array, resetting");
         req.headers["x-user-roles"] = "[]";
       }
     }
 
     if (headers["x-user-permissions"]) {
-      const perms = JSON.parse(headers["x-user-permissions"]);
-      if (!Array.isArray(perms)) {
+      const permissions = JSON.parse(headers["x-user-permissions"]);
+      if (!Array.isArray(permissions)) {
+        console.warn("x-user-permissions is not an array, resetting");
         req.headers["x-user-permissions"] = "[]";
       }
     }
   } catch {
+    console.warn("Invalid role/permission headers, resetting");
     req.headers["x-user-roles"] = "[]";
     req.headers["x-user-permissions"] = "[]";
-  }
-
-  return { valid: true };
-}
-
-/**
- * Verify gateway HMAC signature
- * IMPORTANT: NO timestamp parsing BEFORE signature verification
- */
-function verifyGatewaySignature(req) {
-  const signature = req.headers["x-gateway-signature"];
-  const timestamp = req.headers["x-gateway-timestamp"];
-  const userId = req.headers["x-user-id"];
-  const tenantId = req.headers["x-tenant-id"];
-
-  if (!signature || !timestamp || !userId || !tenantId) {
-    return {
-      valid: false,
-      reason: "Missing gateway signature headers",
-    };
-  }
-
-  let secret = process.env.GATEWAY_SECRET;
-  if (!secret) {
-    return {
-      valid: false,
-      reason: "Gateway secret not configured",
-    };
-  }
-
-  // Match Lua behavior: only trim trailing whitespace (gsub("%s+$", ""))
-  // Lua: gateway_secret:gsub("%s+$", "")
-  secret = secret.replace(/\s+$/, "");
-  if (!secret) {
-    return {
-      valid: false,
-      reason: "Gateway secret is empty",
-    };
-  }
-
-  // EXACT payload as built by Lua:
-  // table.concat({ user_id, tenant_id, timestamp }, "|")
-  const payload = `${userId}|${tenantId}|${timestamp}`;
-
-  const expectedSignature = crypto
-    .createHmac("sha256", secret)
-    .update(payload, "utf8")
-    .digest("hex")
-    .toLowerCase();
-
-  const receivedSignature = signature.trim().toLowerCase();
-
-  if (expectedSignature !== receivedSignature) {
-    // Debug logging for signature mismatch
-    console.log("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:", {
-      payload,
-      userId,
-      tenantId,
-      timestamp,
-      timestampType: typeof timestamp,
-      secretLength: secret.length,
-      secretFirstChar: secret[0],
-      secretLastChar: secret[secret.length - 1],
-      expectedSignature,
-      receivedSignature,
-      expectedLength: expectedSignature.length,
-      receivedLength: receivedSignature.length,
-    });
-    return {
-      valid: false,
-      reason: "Invalid signature",
-    };
-  }
-
-  // Replay protection (ONLY AFTER SIGNATURE MATCH)
-  const headerTime = Number(timestamp);
-  if (!Number.isFinite(headerTime)) {
-    return {
-      valid: false,
-      reason: "Invalid timestamp format",
-    };
-  }
-
-  const now = Date.now();
-  const timeDiff = Math.abs(now - headerTime);
-
-  if (timeDiff > 300000) {
-    return {
-      valid: false,
-      reason: "Timestamp outside acceptable window",
-    };
   }
 
   return { valid: true };
@@ -171,14 +91,25 @@ function verifyGatewaySignature(req) {
 function validateGatewayRequest(req) {
   const startTime = Date.now();
   const clientIp = req.headers["x-forwarded-for"] || req.socket?.remoteAddress;
+
   const userId = req.headers["x-user-id"];
   const tenantId = req.headers["x-tenant-id"];
 
-  // 1. Header validation
+  // 1. Header validation (HARD BLOCK)
   const headerCheck = validateGatewayHeaders(req);
-  if (!headerCheck.valid) return headerCheck;
+  if (!headerCheck.valid) {
+    logSecurityEvent("GATEWAY_HEADER_VALIDATION_FAILED", {
+      reason: headerCheck.reason,
+      clientIp,
+      userId,
+      tenantId,
+      severity: "HIGH",
+      duration: Date.now() - startTime,
+    });
+    return headerCheck;
+  }
 
-  // 2. Soft expiry logging only
+  // 2. Soft expiry logging (NEVER BLOCK)
   if (isTokenExpired(req)) {
     logSecurityEvent("GATEWAY_TOKEN_EXPIRED_SOFT", {
       reason: "Token expired but accepted (gateway verified)",
@@ -188,20 +119,6 @@ function validateGatewayRequest(req) {
       severity: "LOW",
       duration: Date.now() - startTime,
     });
-  }
-
-  // 3. Signature verification
-  const sigCheck = verifyGatewaySignature(req);
-  if (!sigCheck.valid) {
-    logSecurityEvent("SIGNATURE_VALIDATION_FAILED", {
-      reason: sigCheck.reason,
-      clientIp,
-      userId,
-      tenantId,
-      severity: "HIGH",
-      duration: Date.now() - startTime,
-    });
-    return sigCheck;
   }
 
   return { valid: true };
@@ -214,7 +131,7 @@ function logSecurityEvent(event, payload) {
   try {
     console.warn(`[Security Event] ${event}:`, payload);
   } catch {
-    // never block execution due to logging
+    // Logging must never block execution
   }
 }
 
