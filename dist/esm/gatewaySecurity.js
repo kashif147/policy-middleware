@@ -171,6 +171,9 @@ function verifyGatewaySignature(req) {
   // Note: Gateway trims JWT_SECRET but not GATEWAY_SECRET, but we'll trim defensively
   let secret = process.env.GATEWAY_SECRET;
   if (!secret) {
+    console.error(
+      "[GATEWAY_SECURITY] ERROR: GATEWAY_SECRET not set in environment"
+    );
     return {
       valid: false,
       reason: "Gateway secret not configured",
@@ -179,20 +182,33 @@ function verifyGatewaySignature(req) {
   // Trim trailing whitespace (defensive, in case env var has trailing spaces)
   secret = secret.trim();
 
+  // Log secret info (first/last char only for security)
+  console.error("[GATEWAY_SECURITY] SECRET_INFO:", {
+    length: secret.length,
+    firstChar: secret[0],
+    lastChar: secret[secret.length - 1],
+    hasWhitespace: secret !== secret.trim(),
+  });
+
   // Build signature payload exactly as gateway does:
   // table.concat({user_id, tenant_id, timestamp}, "|")
   // Gateway uses pipe separator "|" to join: userId|tenantId|timestamp
+  // CRITICAL: Use timestamp as-is from header (string), don't convert to number
   const payload = `${userId}|${tenantId}|${timestamp}`;
-  
+
   // Log payload for debugging (ALWAYS log to help diagnose)
+  // This should match: GATEWAY_HMAC_PAYLOAD from gateway logs
   console.error("[GATEWAY_SECURITY] SERVICE_HMAC_PAYLOAD=", payload);
   console.error("[GATEWAY_SECURITY] SERVICE_HMAC_INPUTS:", {
     userId,
     tenantId,
     timestamp,
+    timestampType: typeof timestamp,
+    timestampRaw: JSON.stringify(timestamp),
     payload,
+    payloadLength: payload.length,
   });
-  
+
   // Generate HMAC-SHA256 signature (matches gateway: resty_hmac with SHA256)
   // Gateway: hmac:update(signature_payload) then str.to_hex(hmac:final())
   const expectedSignature = crypto
@@ -203,7 +219,7 @@ function verifyGatewaySignature(req) {
 
   // Normalize received signature - trim whitespace and convert to lowercase
   const receivedSignature = (signature || "").trim().toLowerCase();
-  
+
   // Log both signatures for comparison
   console.error("[GATEWAY_SECURITY] SIGNATURE_COMPARISON:", {
     received: signature,
@@ -213,7 +229,7 @@ function verifyGatewaySignature(req) {
     receivedLength: receivedSignature.length,
     expectedLength: expectedSignature.length,
   });
-  
+
   if (expectedSignature !== receivedSignature) {
     // Detailed debug logging for signature mismatch
     console.error("[GATEWAY_SECURITY] Signature mismatch DETAILS:", {

@@ -171,7 +171,9 @@ function verifyGatewaySignature(req) {
   // Note: Gateway trims JWT_SECRET but not GATEWAY_SECRET, but we'll trim defensively
   let secret = process.env.GATEWAY_SECRET;
   if (!secret) {
-    console.error("[GATEWAY_SECURITY] ERROR: GATEWAY_SECRET not set in environment");
+    console.error(
+      "[GATEWAY_SECURITY] ERROR: GATEWAY_SECRET not set in environment"
+    );
     return {
       valid: false,
       reason: "Gateway secret not configured",
@@ -179,7 +181,7 @@ function verifyGatewaySignature(req) {
   }
   // Trim trailing whitespace (defensive, in case env var has trailing spaces)
   secret = secret.trim();
-  
+
   // Log secret info (first/last char only for security)
   console.error("[GATEWAY_SECURITY] SECRET_INFO:", {
     length: secret.length,
@@ -193,7 +195,7 @@ function verifyGatewaySignature(req) {
   // Gateway uses pipe separator "|" to join: userId|tenantId|timestamp
   // CRITICAL: Use timestamp as-is from header (string), don't convert to number
   const payload = `${userId}|${tenantId}|${timestamp}`;
-  
+
   // Log payload for debugging (ALWAYS log to help diagnose)
   // This should match: GATEWAY_HMAC_PAYLOAD from gateway logs
   console.error("[GATEWAY_SECURITY] SERVICE_HMAC_PAYLOAD=", payload);
