@@ -128,6 +128,7 @@ function verifyGatewaySignature(req) {
   }
 
   const payload = `${userId}|${tenantId}|${timestamp}`;
+  console.error("SERVICE_HMAC_PAYLOAD=", payload);
   const expectedSignature = crypto
     .createHmac("sha256", secret)
     .update(payload)
