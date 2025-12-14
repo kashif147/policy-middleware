@@ -121,24 +121,32 @@ function verifyGatewaySignature(req) {
   console.error("========================================");
   console.error("[GATEWAY_SECURITY] verifyGatewaySignature CALLED");
   console.error("========================================");
-  
+
   // Log ALL headers to debug missing header issue
   const allXHeaders = Object.keys(req.headers).filter(
-    (k) =>
-      k.toLowerCase().includes("gateway") || k.toLowerCase().includes("x-")
+    (k) => k.toLowerCase().includes("gateway") || k.toLowerCase().includes("x-")
   );
-  
-  console.error("[GATEWAY_SECURITY] ALL_HEADERS_DEBUG:", JSON.stringify({
-    allHeaderKeys: allXHeaders,
-    hasXGatewaySignature: !!req.headers["x-gateway-signature"],
-    hasXGatewayTimestamp: !!req.headers["x-gateway-timestamp"],
-    hasXUserId: !!req.headers["x-user-id"],
-    hasXTenantId: !!req.headers["x-tenant-id"],
-    xGatewaySignature: req.headers["x-gateway-signature"] ? "PRESENT" : "MISSING",
-    xGatewayTimestamp: req.headers["x-gateway-timestamp"] || "MISSING",
-    xUserId: req.headers["x-user-id"] || "MISSING",
-    xTenantId: req.headers["x-tenant-id"] || "MISSING",
-  }, null, 2));
+
+  console.error(
+    "[GATEWAY_SECURITY] ALL_HEADERS_DEBUG:",
+    JSON.stringify(
+      {
+        allHeaderKeys: allXHeaders,
+        hasXGatewaySignature: !!req.headers["x-gateway-signature"],
+        hasXGatewayTimestamp: !!req.headers["x-gateway-timestamp"],
+        hasXUserId: !!req.headers["x-user-id"],
+        hasXTenantId: !!req.headers["x-tenant-id"],
+        xGatewaySignature: req.headers["x-gateway-signature"]
+          ? "PRESENT"
+          : "MISSING",
+        xGatewayTimestamp: req.headers["x-gateway-timestamp"] || "MISSING",
+        xUserId: req.headers["x-user-id"] || "MISSING",
+        xTenantId: req.headers["x-tenant-id"] || "MISSING",
+      },
+      null,
+      2
+    )
+  );
 
   const signature = req.headers["x-gateway-signature"];
   const timestamp = req.headers["x-gateway-timestamp"];

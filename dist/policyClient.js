@@ -56,7 +56,8 @@ class PolicyClient {
 
       return response;
     } catch (error) {
-      console.error("Policy evaluation failed:", error.message);
+      console.log("[POLICY_CLIENT] ERROR: Policy evaluation failed:", error.message);
+      console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
         decision: "DENY",
@@ -128,7 +129,8 @@ class PolicyClient {
 
       return response;
     } catch (error) {
-      console.error("Policy evaluation failed:", error.message);
+      console.log("[POLICY_CLIENT] ERROR: Policy evaluation failed:", error.message);
+      console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
         decision: "DENY",
@@ -163,7 +165,8 @@ class PolicyClient {
         headers: forwardHeaders,
       });
     } catch (error) {
-      console.error("Get permissions failed:", error.message);
+      console.log("[POLICY_CLIENT] ERROR: Get permissions failed:", error.message);
+      console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
         permissions: [],
@@ -188,7 +191,8 @@ class PolicyClient {
         },
       });
     } catch (error) {
-      console.error("Get permissions failed:", error.message);
+      console.log("[POLICY_CLIENT] ERROR: Get permissions failed:", error.message);
+      console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
         permissions: [],
@@ -222,8 +226,8 @@ class PolicyClient {
 
         if (attempt < this.retries) {
           const delay = this.retryDelay * Math.pow(2, attempt - 1); // Exponential backoff
-          console.warn(
-            `Policy request failed (attempt ${attempt}/${this.retries}), retrying in ${delay}ms...`
+          console.log(
+            `[POLICY_CLIENT] WARN: Policy request failed (attempt ${attempt}/${this.retries}), retrying in ${delay}ms...`
           );
           await this.sleep(delay);
         }
