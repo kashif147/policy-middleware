@@ -111,7 +111,8 @@ function verifyGatewaySignature(req) {
   const userId = req.headers["x-user-id"];
   const tenantId = req.headers["x-tenant-id"];
 
-  if (!signature || !timestamp || !userId || !tenantId) {
+  // if (!signature || !timestamp || !userId || !tenantId) {printenv | grep GATEWAY_SECRET
+  if (![signature, timestamp, userId, tenantId].every(Boolean)) {
     return {
       valid: false,
       reason: "Missing gateway signature headers",
