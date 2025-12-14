@@ -90,7 +90,7 @@ function verifyGatewaySignature(req) {
     return false;
   }
 
-  const message = `${userId}|${tenantId}|${timestamp}`;
+  const message = `${userId}:${tenantId}:${timestamp}`;
   const expectedSig = crypto
     .createHmac("sha256", gatewaySecret)
     .update(message)
@@ -274,61 +274,36 @@ function validateGatewayHeaders(req) {
  * @param {Object} req - Express request object
  * @returns {boolean} True if expired
  */
-// function isTokenExpired(req) {
-//   const expiresAt = req.headers["x-token-expires-at"];
-//   if (!expiresAt) {
-//     // If no expiration header, assume valid (gateway should set this)
-//     return false;
-//   }
-
-//   const expiryTime = parseInt(expiresAt, 10);
-//   if (isNaN(expiryTime)) {
-//     console.warn("Invalid x-token-expires-at format");
-//     return false; // Don't reject if format is wrong, just log
-//   }
-
-//   // Add grace period to handle clock skew and network latency (default 60 seconds)
-//   const gracePeriodMs = parseInt(
-//     process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || "60000",
-//     10
-//   );
-//   const now = Date.now();
-//   const expiryWithGrace = expiryTime + gracePeriodMs;
-
-//   // Log if token is expired but within grace period
-//   if (now > expiryTime && now <= expiryWithGrace) {
-//     const expiredBy = now - expiryTime;
-//     console.warn(
-//       `Token expired ${expiredBy}ms ago but within grace period (${gracePeriodMs}ms)`
-//     );
-//   }
-
-//   return now > expiryWithGrace;
-// }
 function isTokenExpired(req) {
   const expiresAt = req.headers["x-token-expires-at"];
   if (!expiresAt) {
+    // If no expiration header, assume valid (gateway should set this)
     return false;
   }
 
-  let expiryTime = parseInt(expiresAt, 10);
+  const expiryTime = parseInt(expiresAt, 10);
   if (isNaN(expiryTime)) {
     console.warn("Invalid x-token-expires-at format");
-    return false;
+    return false; // Don't reject if format is wrong, just log
   }
 
-  // Convert seconds → milliseconds if needed
-  if (expiryTime < 1e12) {
-    expiryTime = expiryTime * 1000;
-  }
-
+  // Add grace period to handle clock skew and network latency (default 60 seconds)
   const gracePeriodMs = parseInt(
     process.env.TOKEN_EXPIRY_GRACE_PERIOD_MS || "60000",
     10
   );
-
   const now = Date.now();
-  return now > expiryTime + gracePeriodMs;
+  const expiryWithGrace = expiryTime + gracePeriodMs;
+
+  // Log if token is expired but within grace period
+  if (now > expiryTime && now <= expiryWithGrace) {
+    const expiredBy = now - expiryTime;
+    console.warn(
+      `Token expired ${expiredBy}ms ago but within grace period (${gracePeriodMs}ms)`
+    );
+  }
+
+  return now > expiryWithGrace;
 }
 
 /**
@@ -446,7 +421,6 @@ export {
   isTokenExpired,
   validateGatewayRequest,
   logSecurityEvent,
-  // Export for external use,
 };
 
 export default {
@@ -456,5 +430,4 @@ export default {
   isTokenExpired,
   validateGatewayRequest,
   logSecurityEvent,
-  // Export for external use,
 };
