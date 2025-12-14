@@ -3,7 +3,6 @@
  * Node services MUST trust NGINX as the JWT authority.
  * JWT expiry is enforced ONLY at the gateway.
  */
-
 import crypto from "crypto";
 
 /**

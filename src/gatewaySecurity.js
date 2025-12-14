@@ -3,13 +3,6 @@
  * Node services MUST trust NGINX as the JWT authority.
  * JWT expiry is enforced ONLY at the gateway.
  */
-console.log("DEBUG TOKEN HEADERS", {
-  expHeader: req.headers["x-token-expires-at"],
-  expAsNumber: Number(req.headers["x-token-expires-at"]),
-  now: Date.now(),
-  nowSeconds: Math.floor(Date.now() / 1000),
-});
-
 const crypto = require("crypto");
 
 /**
