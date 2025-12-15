@@ -11,6 +11,8 @@
  * - Performs SOFT token expiry logging (never blocks)
  * - Verifies HMAC signature to ensure request came from gateway
  */
+throw new Error("GATEWAY SECURITY LOADED");
+
 import crypto from "crypto";
 
 /**
@@ -241,6 +243,4 @@ function logSecurityEvent(event, payload) {
   }
 }
 
-export {
-  validateGatewayRequest,
-};
+export { validateGatewayRequest };
