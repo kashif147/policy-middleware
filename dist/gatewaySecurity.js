@@ -11,8 +11,6 @@
  * - Performs SOFT token expiry logging (never blocks)
  * - Verifies HMAC signature to ensure request came from gateway
  */
-throw new Error("GATEWAY SECURITY LOADED");
-
 const crypto = require("crypto");
 
 /**
@@ -94,10 +92,30 @@ function validateGatewayHeaders(req) {
  */
 function verifyGatewaySignature(req) {
   console.warn("[GATEWAY_SECURITY] verifyGatewaySignature called");
+  
+  // Get raw header values - Express normalizes headers to lowercase
   const signature = req.headers["x-gateway-signature"];
   const timestamp = req.headers["x-gateway-timestamp"];
   const userId = req.headers["x-user-id"];
   const tenantId = req.headers["x-tenant-id"];
+
+  // Log raw header values with detailed inspection
+  console.error("[GATEWAY_SECURITY] RAW_HEADER_VALUES:", {
+    signature: signature ? `${signature.substring(0, 20)}... (len=${signature.length})` : null,
+    signatureRaw: signature ? JSON.stringify(signature) : null,
+    timestamp: timestamp ? `${timestamp} (type=${typeof timestamp}, len=${timestamp?.length})` : null,
+    timestampRaw: timestamp ? JSON.stringify(timestamp) : null,
+    userId: userId ? `${userId} (len=${userId.length})` : null,
+    userIdRaw: userId ? JSON.stringify(userId) : null,
+    tenantId: tenantId ? `${tenantId} (len=${tenantId.length})` : null,
+    tenantIdRaw: tenantId ? JSON.stringify(tenantId) : null,
+    hasWhitespace: {
+      signature: signature ? signature !== signature.trim() : false,
+      timestamp: timestamp ? timestamp !== timestamp.trim() : false,
+      userId: userId ? userId !== userId.trim() : false,
+      tenantId: tenantId ? tenantId !== tenantId.trim() : false,
+    },
+  });
 
   console.warn("[GATEWAY_SECURITY] Signature inputs:", {
     hasSignature: !!signature,
@@ -135,7 +153,41 @@ function verifyGatewaySignature(req) {
 
   // EXACT payload as built by Lua:
   // table.concat({ user_id, tenant_id, timestamp }, "|")
+  // CRITICAL: Use raw values as-is, don't trim (gateway doesn't trim these)
   const payload = `${userId}|${tenantId}|${timestamp}`;
+
+  // Log BEFORE signature generation to see exact inputs
+  console.error("[GATEWAY_SECURITY] BEFORE_SIGNATURE_GENERATION:", {
+    payload,
+    payloadRaw: JSON.stringify(payload),
+    payloadLength: payload.length,
+    payloadBytes: Buffer.from(payload, "utf8").length,
+    payloadHex: Buffer.from(payload, "utf8").toString("hex"),
+    userId,
+    userIdRaw: JSON.stringify(userId),
+    userIdLength: userId?.length,
+    tenantId,
+    tenantIdRaw: JSON.stringify(tenantId),
+    tenantIdLength: tenantId?.length,
+    timestamp,
+    timestampRaw: JSON.stringify(timestamp),
+    timestampLength: timestamp?.length,
+    timestampType: typeof timestamp,
+    secretLength: secret.length,
+    secretFirstChar: secret[0],
+    secretLastChar: secret[secret.length - 1],
+    secretFirstBytes: Buffer.from(secret.substring(0, 10), "utf8").toString("hex"),
+  });
+  
+  // Compare with expected payload from gateway logs
+  const expectedPayload = "68c6c6368e834293355e49ba|68cbf7806080b4621d469d34|1765819948000";
+  console.error("[GATEWAY_SECURITY] PAYLOAD_COMPARISON:", {
+    servicePayload: payload,
+    gatewayPayload: expectedPayload,
+    match: payload === expectedPayload,
+    servicePayloadHex: Buffer.from(payload, "utf8").toString("hex"),
+    gatewayPayloadHex: Buffer.from(expectedPayload, "utf8").toString("hex"),
+  });
 
   const expectedSignature = crypto
     .createHmac("sha256", secret)
@@ -145,10 +197,22 @@ function verifyGatewaySignature(req) {
 
   const receivedSignature = signature.trim().toLowerCase();
 
+  // Log signature comparison
+  console.error("[GATEWAY_SECURITY] SIGNATURE_COMPARISON:", {
+    expectedSignature,
+    receivedSignature,
+    match: expectedSignature === receivedSignature,
+    expectedLength: expectedSignature.length,
+    receivedLength: receivedSignature.length,
+    expectedFirst20: expectedSignature.substring(0, 20),
+    receivedFirst20: receivedSignature.substring(0, 20),
+  });
+
   if (expectedSignature !== receivedSignature) {
     // Debug logging for signature mismatch - use console.error to ensure visibility
     const debugInfo = {
       payload,
+      payloadBytes: Buffer.from(payload, "utf8").toString("hex"),
       userId,
       tenantId,
       timestamp,
@@ -156,10 +220,13 @@ function verifyGatewaySignature(req) {
       secretLength: secret.length,
       secretFirstChar: secret[0],
       secretLastChar: secret[secret.length - 1],
+      secretFirst10Hex: Buffer.from(secret.substring(0, 10), "utf8").toString("hex"),
       expectedSignature,
       receivedSignature,
       expectedLength: expectedSignature.length,
       receivedLength: receivedSignature.length,
+      expectedFirst20: expectedSignature.substring(0, 20),
+      receivedFirst20: receivedSignature.substring(0, 20),
     };
     // Force output to stderr to bypass any filtering
     process.stderr.write("========================================\n");
