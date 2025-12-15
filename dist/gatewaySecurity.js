@@ -93,10 +93,20 @@ function validateGatewayHeaders(req) {
  * IMPORTANT: NO timestamp parsing BEFORE signature verification
  */
 function verifyGatewaySignature(req) {
+  console.log("[GATEWAY_SECURITY] verifyGatewaySignature called");
   const signature = req.headers["x-gateway-signature"];
   const timestamp = req.headers["x-gateway-timestamp"];
   const userId = req.headers["x-user-id"];
   const tenantId = req.headers["x-tenant-id"];
+
+  console.log("[GATEWAY_SECURITY] Signature inputs:", {
+    hasSignature: !!signature,
+    hasTimestamp: !!timestamp,
+    hasUserId: !!userId,
+    hasTenantId: !!tenantId,
+    signatureLength: signature?.length,
+    timestampValue: timestamp,
+  });
 
   if (!signature || !timestamp || !userId || !tenantId) {
     return {
@@ -183,6 +193,7 @@ function verifyGatewaySignature(req) {
  * Main gateway validation entry point
  */
 function validateGatewayRequest(req) {
+  console.log("[GATEWAY_SECURITY] validateGatewayRequest called");
   const startTime = Date.now();
   const clientIp = req.headers["x-forwarded-for"] || req.socket?.remoteAddress;
 
@@ -190,8 +201,13 @@ function validateGatewayRequest(req) {
   const tenantId = req.headers["x-tenant-id"];
 
   // 1. Header validation (HARD BLOCK)
+  console.log("[GATEWAY_SECURITY] Step 1: Validating headers...");
   const headerCheck = validateGatewayHeaders(req);
   if (!headerCheck.valid) {
+    console.log(
+      "[GATEWAY_SECURITY] Header validation failed:",
+      headerCheck.reason
+    );
     logSecurityEvent("GATEWAY_HEADER_VALIDATION_FAILED", {
       reason: headerCheck.reason,
       clientIp,
@@ -216,8 +232,13 @@ function validateGatewayRequest(req) {
   }
 
   // 3. Signature verification
+  console.log("[GATEWAY_SECURITY] Step 3: Verifying signature...");
   const sigCheck = verifyGatewaySignature(req);
   if (!sigCheck.valid) {
+    console.log(
+      "[GATEWAY_SECURITY] Signature verification failed:",
+      sigCheck.reason
+    );
     logSecurityEvent("SIGNATURE_VALIDATION_FAILED", {
       reason: sigCheck.reason,
       clientIp,
