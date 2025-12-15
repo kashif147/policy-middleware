@@ -146,8 +146,8 @@ function verifyGatewaySignature(req) {
   const receivedSignature = signature.trim().toLowerCase();
 
   if (expectedSignature !== receivedSignature) {
-    // Debug logging for signature mismatch
-    console.log("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:", {
+    // Debug logging for signature mismatch - use console.error to ensure visibility
+    const debugInfo = {
       payload,
       userId,
       tenantId,
@@ -160,10 +160,21 @@ function verifyGatewaySignature(req) {
       receivedSignature,
       expectedLength: expectedSignature.length,
       receivedLength: receivedSignature.length,
-    });
+    };
+    // Force output to stderr to bypass any filtering
+    process.stderr.write("========================================\n");
+    process.stderr.write("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:\n");
+    process.stderr.write(JSON.stringify(debugInfo, null, 2) + "\n");
+    process.stderr.write("========================================\n");
+    console.error("========================================");
+    console.error("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:");
+    console.error(JSON.stringify(debugInfo, null, 2));
+    console.error("========================================");
+    console.log("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:", debugInfo);
     return {
       valid: false,
       reason: "Invalid signature",
+      debug: debugInfo, // Include debug info in response for troubleshooting
     };
   }
 
