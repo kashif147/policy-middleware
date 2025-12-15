@@ -12,6 +12,38 @@
  * - Verifies HMAC signature to ensure request came from gateway
  */
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+
+// File logging for Azure (accessible via Kudu)
+let logFileStream = null;
+try {
+  const logDir = path.join(process.cwd(), "logs");
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  const logFile = path.join(logDir, "gateway-security.log");
+  logFileStream = fs.createWriteStream(logFile, { flags: "a" });
+} catch (error) {
+  // If file logging fails, continue without it
+  console.warn("[GATEWAY_SECURITY] File logging not available:", error.message);
+}
+
+// Helper to write to both stdout and file
+function writeLog(level, message, data = null) {
+  const timestamp = new Date().toISOString();
+  const logEntry = data
+    ? `[${timestamp}] [${level}] ${message}\n${JSON.stringify(data, null, 2)}\n`
+    : `[${timestamp}] [${level}] ${message}\n`;
+
+  // Always write to stdout (for Azure log stream)
+  process.stdout.write(logEntry);
+
+  // Also write to file (for Kudu access)
+  if (logFileStream) {
+    logFileStream.write(logEntry);
+  }
+}
 
 /**
  * Soft token expiry check (LOG ONLY)
@@ -91,7 +123,7 @@ function validateGatewayHeaders(req) {
  * IMPORTANT: NO timestamp parsing BEFORE signature verification
  */
 function verifyGatewaySignature(req) {
-  process.stdout.write(`[GATEWAY_SECURITY] verifyGatewaySignature called\n`);
+  writeLog("INFO", "[GATEWAY_SECURITY] verifyGatewaySignature called");
   console.warn("[GATEWAY_SECURITY] verifyGatewaySignature called");
 
   // Get raw header values - Express normalizes headers to lowercase
@@ -122,13 +154,7 @@ function verifyGatewaySignature(req) {
       tenantId: tenantId ? tenantId !== tenantId.trim() : false,
     },
   };
-  process.stdout.write(
-    `[GATEWAY_SECURITY] RAW_HEADER_VALUES: ${JSON.stringify(
-      rawHeaderLog,
-      null,
-      2
-    )}\n`
-  );
+  writeLog("INFO", "[GATEWAY_SECURITY] RAW_HEADER_VALUES", rawHeaderLog);
   console.error("[GATEWAY_SECURITY] RAW_HEADER_VALUES:", rawHeaderLog);
 
   console.warn("[GATEWAY_SECURITY] Signature inputs:", {
@@ -317,7 +343,7 @@ function verifyGatewaySignature(req) {
  * Main gateway validation entry point
  */
 function validateGatewayRequest(req) {
-  process.stdout.write(`[GATEWAY_SECURITY] validateGatewayRequest called\n`);
+  writeLog("INFO", "[GATEWAY_SECURITY] validateGatewayRequest called");
   console.warn("[GATEWAY_SECURITY] validateGatewayRequest called");
   const startTime = Date.now();
   const clientIp = req.headers["x-forwarded-for"] || req.socket?.remoteAddress;
@@ -326,7 +352,7 @@ function validateGatewayRequest(req) {
   const tenantId = req.headers["x-tenant-id"];
 
   // 1. Header validation (HARD BLOCK)
-  process.stdout.write(`[GATEWAY_SECURITY] Step 1: Validating headers...\n`);
+  writeLog("INFO", "[GATEWAY_SECURITY] Step 1: Validating headers...");
   console.warn("[GATEWAY_SECURITY] Step 1: Validating headers...");
   const headerCheck = validateGatewayHeaders(req);
   if (!headerCheck.valid) {
@@ -358,7 +384,7 @@ function validateGatewayRequest(req) {
   }
 
   // 3. Signature verification
-  process.stdout.write(`[GATEWAY_SECURITY] Step 3: Verifying signature...\n`);
+  writeLog("INFO", "[GATEWAY_SECURITY] Step 3: Verifying signature...");
   console.warn("[GATEWAY_SECURITY] Step 3: Verifying signature...");
   const sigCheck = verifyGatewaySignature(req);
   if (!sigCheck.valid) {
