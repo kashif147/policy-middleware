@@ -93,13 +93,13 @@ function validateGatewayHeaders(req) {
  * IMPORTANT: NO timestamp parsing BEFORE signature verification
  */
 function verifyGatewaySignature(req) {
-  console.log("[GATEWAY_SECURITY] verifyGatewaySignature called");
+  console.warn("[GATEWAY_SECURITY] verifyGatewaySignature called");
   const signature = req.headers["x-gateway-signature"];
   const timestamp = req.headers["x-gateway-timestamp"];
   const userId = req.headers["x-user-id"];
   const tenantId = req.headers["x-tenant-id"];
 
-  console.log("[GATEWAY_SECURITY] Signature inputs:", {
+  console.warn("[GATEWAY_SECURITY] Signature inputs:", {
     hasSignature: !!signature,
     hasTimestamp: !!timestamp,
     hasUserId: !!userId,
@@ -170,7 +170,7 @@ function verifyGatewaySignature(req) {
     console.error("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:");
     console.error(JSON.stringify(debugInfo, null, 2));
     console.error("========================================");
-    console.log("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:", debugInfo);
+    console.warn("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:", debugInfo);
     return {
       valid: false,
       reason: "Invalid signature",
@@ -204,7 +204,7 @@ function verifyGatewaySignature(req) {
  * Main gateway validation entry point
  */
 function validateGatewayRequest(req) {
-  console.log("[GATEWAY_SECURITY] validateGatewayRequest called");
+  console.warn("[GATEWAY_SECURITY] validateGatewayRequest called");
   const startTime = Date.now();
   const clientIp = req.headers["x-forwarded-for"] || req.socket?.remoteAddress;
 
@@ -212,10 +212,10 @@ function validateGatewayRequest(req) {
   const tenantId = req.headers["x-tenant-id"];
 
   // 1. Header validation (HARD BLOCK)
-  console.log("[GATEWAY_SECURITY] Step 1: Validating headers...");
+  console.warn("[GATEWAY_SECURITY] Step 1: Validating headers...");
   const headerCheck = validateGatewayHeaders(req);
   if (!headerCheck.valid) {
-    console.log(
+    console.warn(
       "[GATEWAY_SECURITY] Header validation failed:",
       headerCheck.reason
     );
@@ -243,10 +243,10 @@ function validateGatewayRequest(req) {
   }
 
   // 3. Signature verification
-  console.log("[GATEWAY_SECURITY] Step 3: Verifying signature...");
+  console.warn("[GATEWAY_SECURITY] Step 3: Verifying signature...");
   const sigCheck = verifyGatewaySignature(req);
   if (!sigCheck.valid) {
-    console.log(
+    console.warn(
       "[GATEWAY_SECURITY] Signature verification failed:",
       sigCheck.reason
     );
