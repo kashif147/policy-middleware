@@ -91,8 +91,9 @@ function validateGatewayHeaders(req) {
  * IMPORTANT: NO timestamp parsing BEFORE signature verification
  */
 function verifyGatewaySignature(req) {
+  process.stdout.write(`[GATEWAY_SECURITY] verifyGatewaySignature called\n`);
   console.warn("[GATEWAY_SECURITY] verifyGatewaySignature called");
-  
+
   // Get raw header values - Express normalizes headers to lowercase
   const signature = req.headers["x-gateway-signature"];
   const timestamp = req.headers["x-gateway-timestamp"];
@@ -100,10 +101,15 @@ function verifyGatewaySignature(req) {
   const tenantId = req.headers["x-tenant-id"];
 
   // Log raw header values with detailed inspection
-  console.error("[GATEWAY_SECURITY] RAW_HEADER_VALUES:", {
-    signature: signature ? `${signature.substring(0, 20)}... (len=${signature.length})` : null,
+  // Use process.stdout.write to ensure logs appear in Azure log stream
+  const rawHeaderLog = {
+    signature: signature
+      ? `${signature.substring(0, 20)}... (len=${signature.length})`
+      : null,
     signatureRaw: signature ? JSON.stringify(signature) : null,
-    timestamp: timestamp ? `${timestamp} (type=${typeof timestamp}, len=${timestamp?.length})` : null,
+    timestamp: timestamp
+      ? `${timestamp} (type=${typeof timestamp}, len=${timestamp?.length})`
+      : null,
     timestampRaw: timestamp ? JSON.stringify(timestamp) : null,
     userId: userId ? `${userId} (len=${userId.length})` : null,
     userIdRaw: userId ? JSON.stringify(userId) : null,
@@ -115,7 +121,15 @@ function verifyGatewaySignature(req) {
       userId: userId ? userId !== userId.trim() : false,
       tenantId: tenantId ? tenantId !== tenantId.trim() : false,
     },
-  });
+  };
+  process.stdout.write(
+    `[GATEWAY_SECURITY] RAW_HEADER_VALUES: ${JSON.stringify(
+      rawHeaderLog,
+      null,
+      2
+    )}\n`
+  );
+  console.error("[GATEWAY_SECURITY] RAW_HEADER_VALUES:", rawHeaderLog);
 
   console.warn("[GATEWAY_SECURITY] Signature inputs:", {
     hasSignature: !!signature,
@@ -157,7 +171,7 @@ function verifyGatewaySignature(req) {
   const payload = `${userId}|${tenantId}|${timestamp}`;
 
   // Log BEFORE signature generation to see exact inputs
-  console.error("[GATEWAY_SECURITY] BEFORE_SIGNATURE_GENERATION:", {
+  const beforeSigLog = {
     payload,
     payloadRaw: JSON.stringify(payload),
     payloadLength: payload.length,
@@ -176,18 +190,40 @@ function verifyGatewaySignature(req) {
     secretLength: secret.length,
     secretFirstChar: secret[0],
     secretLastChar: secret[secret.length - 1],
-    secretFirstBytes: Buffer.from(secret.substring(0, 10), "utf8").toString("hex"),
-  });
-  
+    secretFirstBytes: Buffer.from(secret.substring(0, 10), "utf8").toString(
+      "hex"
+    ),
+  };
+  process.stdout.write(
+    `[GATEWAY_SECURITY] BEFORE_SIGNATURE_GENERATION: ${JSON.stringify(
+      beforeSigLog,
+      null,
+      2
+    )}\n`
+  );
+  console.error(
+    "[GATEWAY_SECURITY] BEFORE_SIGNATURE_GENERATION:",
+    beforeSigLog
+  );
+
   // Compare with expected payload from gateway logs
-  const expectedPayload = "68c6c6368e834293355e49ba|68cbf7806080b4621d469d34|1765819948000";
-  console.error("[GATEWAY_SECURITY] PAYLOAD_COMPARISON:", {
+  const expectedPayload =
+    "68c6c6368e834293355e49ba|68cbf7806080b4621d469d34|1765819948000";
+  const payloadComparison = {
     servicePayload: payload,
     gatewayPayload: expectedPayload,
     match: payload === expectedPayload,
     servicePayloadHex: Buffer.from(payload, "utf8").toString("hex"),
     gatewayPayloadHex: Buffer.from(expectedPayload, "utf8").toString("hex"),
-  });
+  };
+  process.stdout.write(
+    `[GATEWAY_SECURITY] PAYLOAD_COMPARISON: ${JSON.stringify(
+      payloadComparison,
+      null,
+      2
+    )}\n`
+  );
+  console.error("[GATEWAY_SECURITY] PAYLOAD_COMPARISON:", payloadComparison);
 
   const expectedSignature = crypto
     .createHmac("sha256", secret)
@@ -198,7 +234,7 @@ function verifyGatewaySignature(req) {
   const receivedSignature = signature.trim().toLowerCase();
 
   // Log signature comparison
-  console.error("[GATEWAY_SECURITY] SIGNATURE_COMPARISON:", {
+  const sigComparison = {
     expectedSignature,
     receivedSignature,
     match: expectedSignature === receivedSignature,
@@ -206,7 +242,15 @@ function verifyGatewaySignature(req) {
     receivedLength: receivedSignature.length,
     expectedFirst20: expectedSignature.substring(0, 20),
     receivedFirst20: receivedSignature.substring(0, 20),
-  });
+  };
+  process.stdout.write(
+    `[GATEWAY_SECURITY] SIGNATURE_COMPARISON: ${JSON.stringify(
+      sigComparison,
+      null,
+      2
+    )}\n`
+  );
+  console.error("[GATEWAY_SECURITY] SIGNATURE_COMPARISON:", sigComparison);
 
   if (expectedSignature !== receivedSignature) {
     // Debug logging for signature mismatch - use console.error to ensure visibility
@@ -220,7 +264,9 @@ function verifyGatewaySignature(req) {
       secretLength: secret.length,
       secretFirstChar: secret[0],
       secretLastChar: secret[secret.length - 1],
-      secretFirst10Hex: Buffer.from(secret.substring(0, 10), "utf8").toString("hex"),
+      secretFirst10Hex: Buffer.from(secret.substring(0, 10), "utf8").toString(
+        "hex"
+      ),
       expectedSignature,
       receivedSignature,
       expectedLength: expectedSignature.length,
@@ -271,6 +317,7 @@ function verifyGatewaySignature(req) {
  * Main gateway validation entry point
  */
 function validateGatewayRequest(req) {
+  process.stdout.write(`[GATEWAY_SECURITY] validateGatewayRequest called\n`);
   console.warn("[GATEWAY_SECURITY] validateGatewayRequest called");
   const startTime = Date.now();
   const clientIp = req.headers["x-forwarded-for"] || req.socket?.remoteAddress;
@@ -279,6 +326,7 @@ function validateGatewayRequest(req) {
   const tenantId = req.headers["x-tenant-id"];
 
   // 1. Header validation (HARD BLOCK)
+  process.stdout.write(`[GATEWAY_SECURITY] Step 1: Validating headers...\n`);
   console.warn("[GATEWAY_SECURITY] Step 1: Validating headers...");
   const headerCheck = validateGatewayHeaders(req);
   if (!headerCheck.valid) {
@@ -310,6 +358,7 @@ function validateGatewayRequest(req) {
   }
 
   // 3. Signature verification
+  process.stdout.write(`[GATEWAY_SECURITY] Step 3: Verifying signature...\n`);
   console.warn("[GATEWAY_SECURITY] Step 3: Verifying signature...");
   const sigCheck = verifyGatewaySignature(req);
   if (!sigCheck.valid) {
