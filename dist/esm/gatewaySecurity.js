@@ -9,8 +9,9 @@
  * This middleware:
  * - Validates presence and shape of gateway headers
  * - Performs SOFT token expiry logging (never blocks)
- * - DOES NOT perform cryptographic verification
+ * - Verifies HMAC signature to ensure request came from gateway
  */
+import crypto from "crypto";
 
 /**
  * Soft token expiry check (LOG ONLY)
@@ -86,6 +87,97 @@ function validateGatewayHeaders(req) {
 }
 
 /**
+ * Verify gateway HMAC signature
+ * IMPORTANT: NO timestamp parsing BEFORE signature verification
+ */
+function verifyGatewaySignature(req) {
+  const signature = req.headers["x-gateway-signature"];
+  const timestamp = req.headers["x-gateway-timestamp"];
+  const userId = req.headers["x-user-id"];
+  const tenantId = req.headers["x-tenant-id"];
+
+  if (!signature || !timestamp || !userId || !tenantId) {
+    return {
+      valid: false,
+      reason: "Missing gateway signature headers",
+    };
+  }
+
+  let secret = process.env.GATEWAY_SECRET;
+  if (!secret) {
+    return {
+      valid: false,
+      reason: "Gateway secret not configured",
+    };
+  }
+
+  // Match Lua behavior: only trim trailing whitespace (gsub("%s+$", ""))
+  // Lua: gateway_secret:gsub("%s+$", "")
+  secret = secret.replace(/\s+$/, "");
+  if (!secret) {
+    return {
+      valid: false,
+      reason: "Gateway secret is empty",
+    };
+  }
+
+  // EXACT payload as built by Lua:
+  // table.concat({ user_id, tenant_id, timestamp }, "|")
+  const payload = `${userId}|${tenantId}|${timestamp}`;
+
+  const expectedSignature = crypto
+    .createHmac("sha256", secret)
+    .update(payload, "utf8")
+    .digest("hex")
+    .toLowerCase();
+
+  const receivedSignature = signature.trim().toLowerCase();
+
+  if (expectedSignature !== receivedSignature) {
+    // Debug logging for signature mismatch
+    console.log("[GATEWAY_SECURITY] SIGNATURE_MISMATCH:", {
+      payload,
+      userId,
+      tenantId,
+      timestamp,
+      timestampType: typeof timestamp,
+      secretLength: secret.length,
+      secretFirstChar: secret[0],
+      secretLastChar: secret[secret.length - 1],
+      expectedSignature,
+      receivedSignature,
+      expectedLength: expectedSignature.length,
+      receivedLength: receivedSignature.length,
+    });
+    return {
+      valid: false,
+      reason: "Invalid signature",
+    };
+  }
+
+  // Replay protection (ONLY AFTER SIGNATURE MATCH)
+  const headerTime = Number(timestamp);
+  if (!Number.isFinite(headerTime)) {
+    return {
+      valid: false,
+      reason: "Invalid timestamp format",
+    };
+  }
+
+  const now = Date.now();
+  const timeDiff = Math.abs(now - headerTime);
+
+  if (timeDiff > 300000) {
+    return {
+      valid: false,
+      reason: "Timestamp outside acceptable window",
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
  * Main gateway validation entry point
  */
 function validateGatewayRequest(req) {
@@ -119,6 +211,20 @@ function validateGatewayRequest(req) {
       severity: "LOW",
       duration: Date.now() - startTime,
     });
+  }
+
+  // 3. Signature verification
+  const sigCheck = verifyGatewaySignature(req);
+  if (!sigCheck.valid) {
+    logSecurityEvent("SIGNATURE_VALIDATION_FAILED", {
+      reason: sigCheck.reason,
+      clientIp,
+      userId,
+      tenantId,
+      severity: "HIGH",
+      duration: Date.now() - startTime,
+    });
+    return sigCheck;
   }
 
   return { valid: true };
