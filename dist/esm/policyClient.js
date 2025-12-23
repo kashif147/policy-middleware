@@ -108,12 +108,12 @@ class PolicyClient {
 
     try {
       // Forward gateway headers to user-service
-      // CRITICAL: Forward ALL gateway headers as-is, never modify or override
+      // CRITICAL: Forward identity headers only - no HMAC or timestamp needed
       const forwardHeaders = {
         "Content-Type": "application/json",
       };
 
-      // Forward all gateway authentication headers (authoritative source)
+      // Forward identity headers (authoritative source)
       if (headers["x-jwt-verified"])
         forwardHeaders["x-jwt-verified"] = headers["x-jwt-verified"];
       if (headers["x-auth-source"])
@@ -130,9 +130,6 @@ class PolicyClient {
         forwardHeaders["x-user-roles"] = headers["x-user-roles"];
       if (headers["x-user-permissions"])
         forwardHeaders["x-user-permissions"] = headers["x-user-permissions"];
-      // CRITICAL: Forward gateway timestamp for replay attack prevention
-      if (headers["x-gateway-timestamp"])
-        forwardHeaders["x-gateway-timestamp"] = headers["x-gateway-timestamp"];
       if (headers["x-correlation-id"])
         forwardHeaders["x-correlation-id"] = headers["x-correlation-id"];
 
