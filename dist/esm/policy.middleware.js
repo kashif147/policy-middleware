@@ -6,6 +6,7 @@
  */
 
 import PolicyClient from "./policyClient.js";
+import jwt from "jsonwebtoken";
 
 class PolicyMiddleware {
   constructor(baseURL, options = {}) {
@@ -82,6 +83,27 @@ class PolicyMiddleware {
             req.user?.permissions ||
             req.permissions ||
             [];
+
+          // If still no userId/tenantId, try to decode JWT token from Authorization header
+          if (!userId || !tenantId) {
+            const authHeader = req.headers.authorization || req.headers.Authorization;
+            if (authHeader && authHeader.startsWith("Bearer ")) {
+              const token = authHeader.substring(7);
+              try {
+                // Decode without verification (we'll verify in policy service)
+                const decoded = jwt.decode(token, { complete: false });
+                if (decoded) {
+                  userId = userId || decoded.sub || decoded.id || decoded.userId;
+                  tenantId = tenantId || decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+                  userRoles = userRoles.length > 0 ? userRoles : (decoded.roles || []);
+                  userPermissions = userPermissions.length > 0 ? userPermissions : (decoded.permissions || []);
+                  console.log("[POLICY_MIDDLEWARE] Extracted user context from JWT token");
+                }
+              } catch (e) {
+                console.log("[POLICY_MIDDLEWARE] WARN: Failed to decode JWT token:", e.message);
+              }
+            }
+          }
         }
 
         if (!userId || !tenantId) {

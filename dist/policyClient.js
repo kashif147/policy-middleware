@@ -56,7 +56,10 @@ class PolicyClient {
 
       return response;
     } catch (error) {
-      console.log("[POLICY_CLIENT] ERROR: Policy evaluation failed:", error.message);
+      console.log(
+        "[POLICY_CLIENT] ERROR: Policy evaluation failed:",
+        error.message
+      );
       console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
@@ -86,7 +89,13 @@ class PolicyClient {
     // Create cache key from user context instead of token
     const userId = headers["x-user-id"] || context.userId;
     const tenantId = headers["x-tenant-id"] || context.tenantId;
-    const cacheKey = this.getCacheKeyFromContext(userId, tenantId, resource, action, context);
+    const cacheKey = this.getCacheKeyFromContext(
+      userId,
+      tenantId,
+      resource,
+      action,
+      context
+    );
 
     // Check cache first
     if (this.cache.has(cacheKey)) {
@@ -99,19 +108,33 @@ class PolicyClient {
 
     try {
       // Forward gateway headers to user-service
+      // CRITICAL: Forward ALL gateway headers as-is, never modify or override
       const forwardHeaders = {
         "Content-Type": "application/json",
       };
 
-      // Forward all gateway authentication headers
-      if (headers["x-jwt-verified"]) forwardHeaders["x-jwt-verified"] = headers["x-jwt-verified"];
-      if (headers["x-auth-source"]) forwardHeaders["x-auth-source"] = headers["x-auth-source"];
-      if (headers["x-user-id"]) forwardHeaders["x-user-id"] = headers["x-user-id"];
-      if (headers["x-tenant-id"]) forwardHeaders["x-tenant-id"] = headers["x-tenant-id"];
-      if (headers["x-user-email"]) forwardHeaders["x-user-email"] = headers["x-user-email"];
-      if (headers["x-user-type"]) forwardHeaders["x-user-type"] = headers["x-user-type"];
-      if (headers["x-user-roles"]) forwardHeaders["x-user-roles"] = headers["x-user-roles"];
-      if (headers["x-user-permissions"]) forwardHeaders["x-user-permissions"] = headers["x-user-permissions"];
+      // Forward all gateway authentication headers (authoritative source)
+      if (headers["x-jwt-verified"])
+        forwardHeaders["x-jwt-verified"] = headers["x-jwt-verified"];
+      if (headers["x-auth-source"])
+        forwardHeaders["x-auth-source"] = headers["x-auth-source"];
+      if (headers["x-user-id"])
+        forwardHeaders["x-user-id"] = headers["x-user-id"];
+      if (headers["x-tenant-id"])
+        forwardHeaders["x-tenant-id"] = headers["x-tenant-id"];
+      if (headers["x-user-email"])
+        forwardHeaders["x-user-email"] = headers["x-user-email"];
+      if (headers["x-user-type"])
+        forwardHeaders["x-user-type"] = headers["x-user-type"];
+      if (headers["x-user-roles"])
+        forwardHeaders["x-user-roles"] = headers["x-user-roles"];
+      if (headers["x-user-permissions"])
+        forwardHeaders["x-user-permissions"] = headers["x-user-permissions"];
+      // CRITICAL: Forward gateway timestamp for replay attack prevention
+      if (headers["x-gateway-timestamp"])
+        forwardHeaders["x-gateway-timestamp"] = headers["x-gateway-timestamp"];
+      if (headers["x-correlation-id"])
+        forwardHeaders["x-correlation-id"] = headers["x-correlation-id"];
 
       const response = await this.makeRequest("/policy/evaluate", {
         method: "POST",
@@ -129,7 +152,10 @@ class PolicyClient {
 
       return response;
     } catch (error) {
-      console.log("[POLICY_CLIENT] ERROR: Policy evaluation failed:", error.message);
+      console.log(
+        "[POLICY_CLIENT] ERROR: Policy evaluation failed:",
+        error.message
+      );
       console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
@@ -153,19 +179,28 @@ class PolicyClient {
       };
 
       // Forward gateway headers
-      if (headers["x-jwt-verified"]) forwardHeaders["x-jwt-verified"] = headers["x-jwt-verified"];
-      if (headers["x-auth-source"]) forwardHeaders["x-auth-source"] = headers["x-auth-source"];
-      if (headers["x-user-id"]) forwardHeaders["x-user-id"] = headers["x-user-id"];
-      if (headers["x-tenant-id"]) forwardHeaders["x-tenant-id"] = headers["x-tenant-id"];
-      if (headers["x-user-roles"]) forwardHeaders["x-user-roles"] = headers["x-user-roles"];
-      if (headers["x-user-permissions"]) forwardHeaders["x-user-permissions"] = headers["x-user-permissions"];
+      if (headers["x-jwt-verified"])
+        forwardHeaders["x-jwt-verified"] = headers["x-jwt-verified"];
+      if (headers["x-auth-source"])
+        forwardHeaders["x-auth-source"] = headers["x-auth-source"];
+      if (headers["x-user-id"])
+        forwardHeaders["x-user-id"] = headers["x-user-id"];
+      if (headers["x-tenant-id"])
+        forwardHeaders["x-tenant-id"] = headers["x-tenant-id"];
+      if (headers["x-user-roles"])
+        forwardHeaders["x-user-roles"] = headers["x-user-roles"];
+      if (headers["x-user-permissions"])
+        forwardHeaders["x-user-permissions"] = headers["x-user-permissions"];
 
       return await this.makeRequest(`/policy/permissions/${resource}`, {
         method: "GET",
         headers: forwardHeaders,
       });
     } catch (error) {
-      console.log("[POLICY_CLIENT] ERROR: Get permissions failed:", error.message);
+      console.log(
+        "[POLICY_CLIENT] ERROR: Get permissions failed:",
+        error.message
+      );
       console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
@@ -185,13 +220,16 @@ class PolicyClient {
     try {
       return await this.makeRequest(`/policy/permissions/${resource}`, {
         method: "GET",
-        headers: { 
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json" 
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
       });
     } catch (error) {
-      console.log("[POLICY_CLIENT] ERROR: Get permissions failed:", error.message);
+      console.log(
+        "[POLICY_CLIENT] ERROR: Get permissions failed:",
+        error.message
+      );
       console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
@@ -224,12 +262,47 @@ class PolicyClient {
       } catch (error) {
         lastError = error;
 
-        if (attempt < this.retries) {
+        // Get HTTP status code from error response
+        const statusCode = error.response?.status;
+
+        // Fail immediately on 401 (Unauthorized) or 403 (Forbidden)
+        // Policy denial is not transient - no retries
+        if (statusCode === 401 || statusCode === 403) {
+          console.log(
+            `[POLICY_CLIENT] ERROR: Policy request failed with ${statusCode} (${
+              statusCode === 401 ? "Unauthorized" : "Forbidden"
+            }) - failing immediately, no retries`
+          );
+          throw error;
+        }
+
+        // Retry only on 5xx server errors
+        // Network errors and other 4xx errors fail immediately
+        const isServerError = statusCode >= 500 && statusCode < 600;
+        const isNetworkError =
+          !statusCode &&
+          (error.code === "ECONNREFUSED" ||
+            error.code === "ETIMEDOUT" ||
+            error.code === "ENOTFOUND");
+
+        if (attempt < this.retries && (isServerError || isNetworkError)) {
           const delay = this.retryDelay * Math.pow(2, attempt - 1); // Exponential backoff
           console.log(
-            `[POLICY_CLIENT] WARN: Policy request failed (attempt ${attempt}/${this.retries}), retrying in ${delay}ms...`
+            `[POLICY_CLIENT] WARN: Policy request failed (attempt ${attempt}/${
+              this.retries
+            }) - ${
+              isServerError ? `Server error ${statusCode}` : "Network error"
+            } - retrying in ${delay}ms...`
           );
           await this.sleep(delay);
+        } else {
+          // Fail immediately for non-retryable errors (4xx except 401/403 already handled)
+          if (statusCode && statusCode < 500) {
+            console.log(
+              `[POLICY_CLIENT] ERROR: Policy request failed with ${statusCode} - failing immediately, no retries`
+            );
+          }
+          throw error;
         }
       }
     }
