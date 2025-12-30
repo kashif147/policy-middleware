@@ -1,6 +1,6 @@
 {
   "name": "@membership/policy-middleware",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Shared policy middleware for membership microservices with centralized RBAC and support for both CommonJS and ESM",
   "main": "dist/index.js",
   "module": "dist/esm/index.js",
