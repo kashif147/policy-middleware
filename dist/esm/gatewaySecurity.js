@@ -75,6 +75,14 @@ function validateGatewayHeaders(req) {
     };
   }
 
+  // 1.5 System caller bypass (n8n, automation)
+  if (
+    headers["x-auth-source"] === "azuread" &&
+    headers["x-service-caller"] === "system.notifier"
+  ) {
+    return { valid: true };
+  }
+
   // 2. Required identity headers
   const userId = headers["x-user-id"];
   const tenantId = headers["x-tenant-id"];
