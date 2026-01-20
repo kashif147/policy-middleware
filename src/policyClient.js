@@ -61,11 +61,31 @@ class PolicyClient {
         error.message
       );
       console.log("[POLICY_CLIENT] STACK:", error.stack);
+      
+      // If we got a response from the server, include it
+      if (error.response) {
+        console.log("[POLICY_CLIENT] Server response status:", error.response.status);
+        console.log("[POLICY_CLIENT] Server response data:", JSON.stringify(error.response.data, null, 2));
+        
+        // If it's a 403, the server already evaluated and denied - return that response
+        if (error.response.status === 403 && error.response.data) {
+          return {
+            success: false,
+            decision: "DENY",
+            reason: error.response.data.reason || "PERMISSION_DENIED",
+            error: error.response.data.error || error.message,
+            ...error.response.data, // Include all fields from server response
+          };
+        }
+      }
+      
       return {
         success: false,
         decision: "DENY",
         reason: "POLICY_SERVICE_ERROR",
         error: error.message,
+        errorCode: error.code,
+        errorResponse: error.response?.data,
       };
     }
   }

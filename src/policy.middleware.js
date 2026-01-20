@@ -220,6 +220,19 @@ class PolicyMiddleware {
           JSON.stringify(result, null, 2)
         );
 
+        // Enhanced error logging for debugging
+        if (!result.success || result.decision !== "PERMIT") {
+          console.error(`[POLICY_MIDDLEWARE] ❌ Authorization DENIED for ${resource}:${action}`);
+          console.error(`[POLICY_MIDDLEWARE] Reason: ${result.reason || "UNKNOWN"}`);
+          console.error(`[POLICY_MIDDLEWARE] Error: ${result.error || "No error message"}`);
+          if (result.userPermissions) {
+            console.error(`[POLICY_MIDDLEWARE] User permissions:`, result.userPermissions);
+          }
+          if (result.requiredPermissions) {
+            console.error(`[POLICY_MIDDLEWARE] Required permissions:`, result.requiredPermissions);
+          }
+        }
+
         if (result.success && result.decision === "PERMIT") {
           // Attach policy context to request for use in controllers
           req.policyContext = result;
@@ -245,13 +258,22 @@ class PolicyMiddleware {
           console.log(
             `[POLICY_MIDDLEWARE] Reason: ${result.reason || "Unknown"}`
           );
+          console.log(
+            `[POLICY_MIDDLEWARE] Full result:`,
+            JSON.stringify(result, null, 2)
+          );
           return res.status(403).json({
             success: false,
-            error: "Insufficient permissions",
+            error: result.error || "Insufficient permissions",
             reason: result.reason || "PERMISSION_DENIED",
             code: "PERMISSION_DENIED",
             resource,
             action,
+            // Include additional debugging info if available
+            ...(result.userPermissions && { userPermissions: result.userPermissions }),
+            ...(result.requiredPermissions && { requiredPermissions: result.requiredPermissions }),
+            ...(result.availablePermissions && { availablePermissions: result.availablePermissions }),
+            ...(result.availableCanonical && { availableCanonical: result.availableCanonical }),
           });
         }
       } catch (error) {
