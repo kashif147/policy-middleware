@@ -60,6 +60,7 @@
     "README.md"
   ],
   "dependencies": {
+    "@projectShell/logging-lib": "file:../logging-lib",
     "axios": "^1.15.0",
     "jsonwebtoken": "^9.0.0"
   },

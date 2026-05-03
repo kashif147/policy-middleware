@@ -9,38 +9,29 @@
  * This middleware:
  * - Validates presence and shape of gateway headers
  * - Trusts requests if x-jwt-verified === "true" && x-auth-source === "gateway"
+ *
+ * Structured logs: `${LOG_ROOT}/<gateway>/app-*.log` and `error-*.log`
+ * (same layout as other services; default LOG_ROOT is cwd/logs). Override folder with GATEWAY_LOG_SERVICE_NAME.
  */
-const crypto = require("crypto");
-const fs = require("fs");
-const path = require("path");
+const { createLogger } = require("@projectShell/logging-lib");
 
-// File logging for Azure (accessible via Kudu)
-let logFileStream = null;
-try {
-  const logDir = path.join(process.cwd(), "logs");
-  if (!fs.existsSync(logDir)) {
-    fs.mkdirSync(logDir, { recursive: true });
-  }
-  const logFile = path.join(logDir, "gateway-security.log");
-  logFileStream = fs.createWriteStream(logFile, { flags: "a" });
-} catch (error) {
-  // If file logging fails, continue without it
-  console.warn("[GATEWAY_SECURITY] File logging not available:", error.message);
-}
+const gatewayStructuredLogger = createLogger(
+  process.env.GATEWAY_LOG_SERVICE_NAME || "gateway"
+);
 
-// Helper to write to both stdout and file
-function writeLog(level, message, data = null) {
-  const timestamp = new Date().toISOString();
-  const logEntry = data
-    ? `[${timestamp}] [${level}] ${message}\n${JSON.stringify(data, null, 2)}\n`
-    : `[${timestamp}] [${level}] ${message}\n`;
-
-  // Always write to stdout (for Azure log stream)
-  process.stdout.write(logEntry);
-
-  // Also write to file (for Kudu access)
-  if (logFileStream) {
-    logFileStream.write(logEntry);
+function writeLog(level, message, data = null, req = null) {
+  const meta =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? { eventType: "GatewaySecurity", ...data }
+      : {
+          eventType: "GatewaySecurity",
+          ...(data != null ? { detail: data } : {}),
+        };
+  const upper = String(level).toUpperCase();
+  if (upper === "ERROR") {
+    gatewayStructuredLogger.error(message, meta, req);
+  } else {
+    gatewayStructuredLogger.business(message, meta, req);
   }
 }
 
@@ -69,6 +60,15 @@ function validateGatewayHeaders(req) {
 
   // 1. Gateway verification flag (HARD REQUIREMENT)
   if (headers["x-jwt-verified"] !== "true") {
+    writeLog(
+      "ERROR",
+      "Gateway did not verify token",
+      {
+        path: req.originalUrl || req.url,
+        jwtVerified: headers["x-jwt-verified"],
+      },
+      req
+    );
     return {
       valid: false,
       reason: "Gateway did not verify token",
@@ -93,6 +93,16 @@ function validateGatewayHeaders(req) {
     (typeof userId === "string" && userId.trim() === "") ||
     (typeof tenantId === "string" && tenantId.trim() === "")
   ) {
+    writeLog(
+      "ERROR",
+      "Missing required gateway identity headers",
+      {
+        path: req.originalUrl || req.url,
+        hasUserId: Boolean(userId && String(userId).trim()),
+        hasTenantId: Boolean(tenantId && String(tenantId).trim()),
+      },
+      req
+    );
     return {
       valid: false,
       reason: "Missing required gateway identity headers",
@@ -105,6 +115,12 @@ function validateGatewayHeaders(req) {
       const roles = JSON.parse(headers["x-user-roles"]);
       if (!Array.isArray(roles)) {
         console.warn("x-user-roles is not an array, resetting");
+        writeLog(
+          "WARN",
+          "x-user-roles is not an array, reset to []",
+          { path: req.originalUrl || req.url },
+          req
+        );
         req.headers["x-user-roles"] = "[]";
       }
     }
@@ -113,31 +129,46 @@ function validateGatewayHeaders(req) {
       const permissions = JSON.parse(headers["x-user-permissions"]);
       if (!Array.isArray(permissions)) {
         console.warn("x-user-permissions is not an array, resetting");
+        writeLog(
+          "WARN",
+          "x-user-permissions is not an array, reset to []",
+          { path: req.originalUrl || req.url },
+          req
+        );
         req.headers["x-user-permissions"] = "[]";
       }
     }
   } catch {
     console.warn("Invalid role/permission headers, resetting");
+    writeLog(
+      "WARN",
+      "Invalid role/permission headers, reset to defaults",
+      { path: req.originalUrl || req.url },
+      req
+    );
     req.headers["x-user-roles"] = "[]";
     req.headers["x-user-permissions"] = "[]";
+  }
+
+  if (isTokenExpired(req)) {
+    writeLog(
+      "WARN",
+      "Access token past soft expiry (grace period)",
+      {
+        eventType: "GatewayTokenSoftExpired",
+        path: req.originalUrl || req.url,
+      },
+      req
+    );
   }
 
   return { valid: true };
 }
 
 /**
- * REMOVED: HMAC signature verification
- * Gateway is trusted boundary - no need for signature verification
- * Services trust requests if x-jwt-verified === "true" && x-auth-source === "gateway"
- */
-
-/**
  * Main gateway validation entry point (Simplified)
- * Trusts requests if gateway headers are present and valid
- * No HMAC or timestamp checks - gateway is trusted boundary
  */
 function validateGatewayRequest(req) {
-  // Only validate headers - gateway is trusted
   return validateGatewayHeaders(req);
 }
 
