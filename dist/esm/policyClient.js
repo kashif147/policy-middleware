@@ -208,6 +208,8 @@ class PolicyClient {
         forwardHeaders["x-user-roles"] = headers["x-user-roles"];
       if (headers["x-user-permissions"])
         forwardHeaders["x-user-permissions"] = headers["x-user-permissions"];
+      if (headers["x-correlation-id"])
+        forwardHeaders["x-correlation-id"] = headers["x-correlation-id"];
 
       return await this.makeRequest(`/policy/permissions/${resource}`, {
         method: "GET",
