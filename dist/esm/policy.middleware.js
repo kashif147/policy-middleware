@@ -7,6 +7,7 @@
 
 import PolicyClient from "./policyClient.js";
 import jwt from "jsonwebtoken";
+import { detectTenantOverride } from "./tenantContext.js";
 
 class PolicyMiddleware {
   constructor(baseURL, options = {}) {
@@ -124,6 +125,29 @@ class PolicyMiddleware {
           ...queryContext,
           ...bodyContext,
         };
+
+        // Canonical tenant/user must never be overridden by caller-supplied
+        // body/query/params values. The spreads above may legitimately carry
+        // non-tenant business attributes, but tenantId/userId are re-asserted
+        // from the trusted context here so a caller-supplied tenantId cannot
+        // change the tenant used for policy evaluation.
+        //
+        // CANONICAL TENANT KEY CONTRACT: `tenantId` is the ONLY authoritative
+        // tenant key. The PDP (user-service policyEvaluationService) reads only
+        // `context.tenantId`; it does not interpret `tenant_id`, `tenantID`, or
+        // any nested tenant object as tenant scope. Such aliases, if present in
+        // body/query, remain ordinary business attributes and can never become
+        // the tenant scope, because only `context.tenantId` is re-asserted here.
+        const tenantOverride = detectTenantOverride(req, tenantId);
+        if (tenantOverride.mismatchSources.length > 0) {
+          console.log(
+            `[POLICY_MIDDLEWARE] Ignoring caller-supplied tenantId from ${tenantOverride.mismatchSources.join(
+              ","
+            )}; using trusted tenant ${tenantId}`
+          );
+        }
+        context.tenantId = tenantId;
+        context.userId = userId;
 
         // Final safety check: remove 'id' from context if it's not from route params
         if (!req.params?.id && context.id) {

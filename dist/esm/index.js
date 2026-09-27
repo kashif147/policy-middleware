@@ -7,6 +7,9 @@
 import PolicyMiddleware from "./policy.middleware.js";
 import PolicyClient from "./policyClient.js";
 import * as gatewaySecurity from "./gatewaySecurity.js";
+// Destructured (not whole-module) require so the ESM build emits a NAMED import
+// matching tenantContext.js's named exports (a default import would be undefined).
+import { resolveTenantContext, tenantContextMiddleware } from "./tenantContext.js";
 
 // Create default policy middleware instance
 const createDefaultPolicyMiddleware = (baseURL, options = {}) => {
@@ -26,6 +29,8 @@ export {
   PolicyMiddleware,
   PolicyClient,
   gatewaySecurity,
+  resolveTenantContext,
+  tenantContextMiddleware,
   createDefaultPolicyMiddleware,
   defaultPolicyMiddleware,
 };
