@@ -60,7 +60,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@projectShell/logging-lib": "file:../logging-lib",
+    "@projectShell/logging-lib": "git+https://github.com/kashif147/logging-lib.git#5fd251bde4ad08ba71cf9844656b5bc126e13b43",
     "axios": "^1.15.0",
     "jsonwebtoken": "^9.0.0"
   },
