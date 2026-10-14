@@ -16,6 +16,7 @@
  *
  * The default is "warn" so the first consuming-service adoption is backward-safe.
  */
+import { pathOnly } from "./safeLog.js";
 import { createLogger } from "@projectShell/logging-lib";
 
 const tenantLogger = createLogger(
@@ -88,7 +89,7 @@ function logMismatch(req, trusted, mismatchSources, mode) {
   const meta = {
     eventType: "TenantContextMismatch",
     method: (req.method || "").toUpperCase(),
-    path: req.originalUrl || req.url,
+    path: pathOnly(req),
     authSource: headers["x-auth-source"] || null,
     environment: process.env.NODE_ENV || null,
     trustedTenantId: trusted,

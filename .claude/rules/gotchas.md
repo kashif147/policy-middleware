@@ -19,12 +19,23 @@ skips identity-header validation entirely, for n8n/automation callers that authe
 rather than the user-JWT gateway flow. Don't remove this without checking whether n8n workflows still
 depend on it.
 
-**Console logging is intentional here, not leftover debugging.** Nearly every method in
-`policy.middleware.js` and `policyClient.js` logs verbosely to `console.log`/`console.error` with a
-`[POLICY_MIDDLEWARE]`/`[POLICY_CLIENT]` prefix, including full request context and stack traces on
-failure — deliberate given how hard cross-service authorization failures are to debug in Azure/
-staging without it. Before stripping any of it out as noise, check whether it's relied on during
-incident triage.
+**Console logging is intentional here, but it is safe metadata only.** `policy.middleware.js` and
+`policyClient.js` log every authorization step with a `[POLICY_MIDDLEWARE]`/`[POLICY_CLIENT]` prefix
+for cross-service triage, using the explicit field sets in `src/safeLog.js`:
+
+- request context: `{resource, action, userId, tenantId, authPath (gateway|token|bypass), roleCount,
+  permissionCount, bodyFields, queryFields, correlationId}` — body/query **field names only**;
+- decision: `{decision, reason, success, policyVersion, userId, tenantId, userType}`;
+- DENY: reason/decision/code, `requiredPermissions` (resource codes) and the user's `permissionCount`;
+- errors: `{name, code, status}`; user-service error bodies: `{reason, decision, code}`;
+- structured (logging-lib) rows: `path` without the query string.
+
+**Never log** request body or query *values*, `originalUrl`/query strings, the Authorization header,
+tokens or anything decoded from them, the user's email, names or other personal data, the roles or
+permissions lists, the raw policy result, raw error response bodies, whole error objects or stack
+traces. Add a field only by adding it explicitly to a `safeLog.js` field set. Logging only: the
+context sent to user-service, decisions, `req.user`/`req.policyContext`/`req.tenantId` and the
+401/403/500 bodies (including the permissions the 403 returns) are unchanged by this rule.
 
 All writes go through `@projectShell/logging-lib`'s `createLogger`, into the `gateway/` log folder
 (override via `GATEWAY_LOG_SERVICE_NAME`) — the same `LOG_ROOT` convention documented in

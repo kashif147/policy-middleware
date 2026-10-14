@@ -38,7 +38,8 @@ When you run `npm run build`:
 
 3. **Test your changes:**
    ```bash
-   # Test in user-service
+   # Package tests (both builds), then a consuming service
+   npm test
    cd ../user-service
    npm test
    ```

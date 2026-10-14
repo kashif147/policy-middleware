@@ -13,6 +13,7 @@
  * Structured logs: `${LOG_ROOT}/<gateway>/app-*.log` and `error-*.log`
  * (same layout as other services; default LOG_ROOT is cwd/logs). Override folder with GATEWAY_LOG_SERVICE_NAME.
  */
+const { pathOnly } = require("./safeLog");
 const { createLogger } = require("@projectShell/logging-lib");
 
 const gatewayStructuredLogger = createLogger(
@@ -64,7 +65,7 @@ function validateGatewayHeaders(req) {
       "ERROR",
       "Gateway did not verify token",
       {
-        path: req.originalUrl || req.url,
+        path: pathOnly(req),
         jwtVerified: headers["x-jwt-verified"],
       },
       req
@@ -97,7 +98,7 @@ function validateGatewayHeaders(req) {
       "ERROR",
       "Missing required gateway identity headers",
       {
-        path: req.originalUrl || req.url,
+        path: pathOnly(req),
         hasUserId: Boolean(userId && String(userId).trim()),
         hasTenantId: Boolean(tenantId && String(tenantId).trim()),
       },
@@ -118,7 +119,7 @@ function validateGatewayHeaders(req) {
         writeLog(
           "WARN",
           "x-user-roles is not an array, reset to []",
-          { path: req.originalUrl || req.url },
+          { path: pathOnly(req) },
           req
         );
         req.headers["x-user-roles"] = "[]";
@@ -132,7 +133,7 @@ function validateGatewayHeaders(req) {
         writeLog(
           "WARN",
           "x-user-permissions is not an array, reset to []",
-          { path: req.originalUrl || req.url },
+          { path: pathOnly(req) },
           req
         );
         req.headers["x-user-permissions"] = "[]";
@@ -143,7 +144,7 @@ function validateGatewayHeaders(req) {
     writeLog(
       "WARN",
       "Invalid role/permission headers, reset to defaults",
-      { path: req.originalUrl || req.url },
+      { path: pathOnly(req) },
       req
     );
     req.headers["x-user-roles"] = "[]";
@@ -156,7 +157,7 @@ function validateGatewayHeaders(req) {
       "Access token past soft expiry (grace period)",
       {
         eventType: "GatewayTokenSoftExpired",
-        path: req.originalUrl || req.url,
+        path: pathOnly(req),
       },
       req
     );

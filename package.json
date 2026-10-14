@@ -28,7 +28,7 @@
     "build:esm": "node scripts/build-esm.js",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
-    "test": "echo 'No tests specified'",
+    "test": "node --test test/*.test.js",
     "lint": "echo 'No linting configured'",
     "version": "git add -A",
     "postversion": "git push && git push --tags"

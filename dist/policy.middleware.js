@@ -8,6 +8,13 @@
 const PolicyClient = require("./policyClient");
 const jwt = require("jsonwebtoken");
 const { detectTenantOverride } = require("./tenantContext");
+const {
+  fieldNames,
+  count,
+  correlationIdOf,
+  decisionFields,
+  errorFields,
+} = require("./safeLog");
 
 class PolicyMiddleware {
   constructor(baseURL, options = {}) {
@@ -159,7 +166,26 @@ class PolicyMiddleware {
           `[POLICY_MIDDLEWARE] Delegating authorization to user service for ${resource}:${action}`
         );
         console.log(`[POLICY_MIDDLEWARE] User: ${userId}, Tenant: ${tenantId}`);
-        console.log(`[POLICY_MIDDLEWARE] Context:`, context);
+        // Safe metadata only: never body/query values, roles or permissions (the full context
+        // is still what is sent to user-service).
+        const authPath =
+          process.env.AUTH_BYPASS_ENABLED === "true"
+            ? "bypass"
+            : hasGatewayHeaders
+              ? "gateway"
+              : "token";
+        console.log(`[POLICY_MIDDLEWARE] Context:`, {
+          resource,
+          action,
+          userId,
+          tenantId,
+          authPath,
+          roleCount: count(userRoles),
+          permissionCount: count(userPermissions),
+          bodyFields: fieldNames(req.body),
+          queryFields: fieldNames(req.query),
+          correlationId: correlationIdOf(req),
+        });
 
         let result;
 
@@ -239,18 +265,25 @@ class PolicyMiddleware {
           }
         }
 
+        // The decision only: never the user's email, roles, permissions or the raw result.
         console.log(
           `[POLICY_MIDDLEWARE] User service response:`,
-          JSON.stringify(result, null, 2)
+          decisionFields(result)
         );
 
         // Enhanced error logging for debugging
         if (!result.success || result.decision !== "PERMIT") {
           console.error(`[POLICY_MIDDLEWARE] ❌ Authorization DENIED for ${resource}:${action}`);
           console.error(`[POLICY_MIDDLEWARE] Reason: ${result.reason || "UNKNOWN"}`);
-          console.error(`[POLICY_MIDDLEWARE] Error: ${result.error || "No error message"}`);
+          console.error(`[POLICY_MIDDLEWARE] Error:`, {
+            reason: result.reason ?? null,
+            decision: result.decision ?? null,
+            code: result.code ?? result.errorCode ?? null,
+          });
           if (result.userPermissions) {
-            console.error(`[POLICY_MIDDLEWARE] User permissions:`, result.userPermissions);
+            console.error(`[POLICY_MIDDLEWARE] User permissions:`, {
+              permissionCount: count(result.userPermissions),
+            });
           }
           if (result.requiredPermissions) {
             console.error(`[POLICY_MIDDLEWARE] Required permissions:`, result.requiredPermissions);
@@ -282,10 +315,7 @@ class PolicyMiddleware {
           console.log(
             `[POLICY_MIDDLEWARE] Reason: ${result.reason || "Unknown"}`
           );
-          console.log(
-            `[POLICY_MIDDLEWARE] Full result:`,
-            JSON.stringify(result, null, 2)
-          );
+          console.log(`[POLICY_MIDDLEWARE] Full result:`, decisionFields(result));
           return res.status(403).json({
             success: false,
             error: result.error || "Insufficient permissions",
@@ -301,8 +331,7 @@ class PolicyMiddleware {
           });
         }
       } catch (error) {
-        console.log("[POLICY_MIDDLEWARE] ERROR:", error.message);
-        console.log("[POLICY_MIDDLEWARE] STACK:", error.stack);
+        console.log("[POLICY_MIDDLEWARE] ERROR:", errorFields(error));
         return res.status(500).json({
           success: false,
           error: "Authorization service error",
@@ -332,9 +361,8 @@ class PolicyMiddleware {
     } catch (error) {
       console.log(
         "[POLICY_MIDDLEWARE] ERROR: Permission check failed:",
-        error.message
+        errorFields(error)
       );
-      console.log("[POLICY_MIDDLEWARE] STACK:", error.stack);
       return false;
     }
   }

@@ -1,11 +1,15 @@
 # Build and deploy model
 
-Every consuming service installs this package as
-`"@membership/policy-middleware": "git+https://github.com/kashif147/policy-middleware.git#gateway"`
-in its `package.json` — the `#gateway` branch is what's actually deployed from. `package.json`'s own
-`publishConfig` points at GitHub Packages, but there is no `.github/workflows/` here and nothing
-publishes there — **the git-dependency-on-a-branch model is the real deployment mechanism, not the
-npm registry.**
+Every consuming service installs this package from git, **pinned to an exact commit SHA**:
+`"@membership/policy-middleware": "git+https://github.com/kashif147/policy-middleware.git#<full sha>"`
+(user-service uses the equivalent `github:kashif147/policy-middleware#<sha>` form), with the same
+commit in its `package-lock.json`. All 11 consuming services pin the same commit. A branch (including
+the old `#gateway` reference some docs still mention) is **not** what consumers install - a new
+package commit reaches a service only when that service's `package.json` and lock are bumped to the
+new SHA and its image is rebuilt. `package.json`'s own `publishConfig` points at GitHub Packages, but
+there is no `.github/workflows/` here and nothing publishes there — **the pinned git dependency is the
+real deployment mechanism, not the npm registry.** The commit must be pushed to GitHub before any
+consumer can install it.
 
 ```bash
 npm run build       # build:cjs + build:esm — regenerates dist/ and dist/esm/ from src/
@@ -13,15 +17,16 @@ npm run build:cjs   # scripts/build-cjs.js — copies src/*.js -> dist/*.js verb
 npm run build:esm   # scripts/build-esm.js — regex-converts src/*.js (CJS) -> dist/esm/*.js (ESM)
 ```
 
-`npm test` and `npm run lint` are no-op stubs (`echo "..."`) — there is no test suite; don't invent
-a single-test command for either.
+`npm test` runs the node:test suite (`node --test test/*.test.js`): `test/tenantContext.test.js`
+(tenant-context primitive) and `test/logging.test.js` (safe-logging model, run against both `dist/`
+and `dist/esm/`, so build before testing). `npm run lint` is a no-op stub.
 
 **`src/` is the only thing you ever edit.** `dist/` and `dist/esm/` are fully generated but are
 committed to git (not gitignored) — because consuming services install this package straight from
-the `#gateway` branch via git URL, editing `src/` without running `npm run build` and committing the
-result means every consuming service keeps pulling the *old* compiled behavior on its next
-`npm install`, silently. `BUILD_PROCESS_EXPLANATION.md` covers this same point in more detail — read
-it before touching anything under `dist/`.
+git at a pinned commit, editing `src/` without running `npm run build` and committing the result means
+a consumer bumped to that commit installs the *old* compiled behavior, silently.
+`BUILD_PROCESS_EXPLANATION.md` covers this same point in more detail — read it before touching
+anything under `dist/`.
 
 **The ESM build is a regex transform, not a real transpiler**: `scripts/build-esm.js` pattern-matches
 `const X = require("...")` and `module.exports = {...}` via regex and rewrites them to

@@ -8,6 +8,7 @@
  */
 
 import axios from "axios";
+import { errorFields, responseFields } from "./safeLog.js";
 
 class PolicyClient {
   constructor(baseUrl, options = {}) {
@@ -56,16 +57,16 @@ class PolicyClient {
 
       return response;
     } catch (error) {
+      // Explicit fields only: never the stack, request config or raw response body.
       console.log(
         "[POLICY_CLIENT] ERROR: Policy evaluation failed:",
-        error.message
+        errorFields(error)
       );
-      console.log("[POLICY_CLIENT] STACK:", error.stack);
-      
+
       // If we got a response from the server, include it
       if (error.response) {
         console.log("[POLICY_CLIENT] Server response status:", error.response.status);
-        console.log("[POLICY_CLIENT] Server response data:", JSON.stringify(error.response.data, null, 2));
+        console.log("[POLICY_CLIENT] Server response data:", responseFields(error.response.data));
         
         // If it's a 403, the server already evaluated and denied - return that response
         if (error.response.status === 403 && error.response.data) {
@@ -171,9 +172,8 @@ class PolicyClient {
     } catch (error) {
       console.log(
         "[POLICY_CLIENT] ERROR: Policy evaluation failed:",
-        error.message
+        errorFields(error)
       );
-      console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
         decision: "DENY",
@@ -218,9 +218,8 @@ class PolicyClient {
     } catch (error) {
       console.log(
         "[POLICY_CLIENT] ERROR: Get permissions failed:",
-        error.message
+        errorFields(error)
       );
-      console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
         permissions: [],
@@ -247,9 +246,8 @@ class PolicyClient {
     } catch (error) {
       console.log(
         "[POLICY_CLIENT] ERROR: Get permissions failed:",
-        error.message
+        errorFields(error)
       );
-      console.log("[POLICY_CLIENT] STACK:", error.stack);
       return {
         success: false,
         permissions: [],
