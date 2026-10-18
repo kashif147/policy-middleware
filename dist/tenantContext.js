@@ -1,26 +1,58 @@
 /**
  * Canonical tenant-context primitive (Phase 1A).
  *
- * Rule: the ProjectShell Tenant._id (represented as a String) is the application
- * tenant id, and it must come only from trusted authenticated context
- * (gateway-injected `x-tenant-id` after JWT verification, or the auth
- * middleware's `req.ctx`/`req.user`). Caller-supplied tenantId from body/query/
- * params is NEVER allowed to become the authoritative tenant scope. Microsoft
- * Entra `tid` / B2C directory id are identity-provider ids, not app tenant ids.
+ * Rule: the ProjectShell Tenant._id (a 24-lowercase-hex ObjectId string) is the
+ * application tenant id. The ONLY trusted source is the gateway's verified boundary:
+ * `x-tenant-id` when `x-auth-source` is "gateway" AND `x-jwt-verified` is "true" AND the
+ * value is exactly 24 lowercase hex characters (the gateway sets it from a verified
+ * ProjectShell JWT and strips client copies). Anything else means NO trusted tenant -
+ * never inferred from req.ctx/req.user, a Bearer token, Microsoft `tid` /
+ * `extension_tenantId`, the body, the query or the params, and never normalised.
+ * Caller-supplied tenantId values are only compared against the trusted tenant.
  *
- * Modes:
+ * Modes (per service: TENANT_CONTEXT_MODE, or an explicit `options.mode`):
  *   - "warn"    (default): trusted tenant stays authoritative; any mismatch with a
  *               caller-supplied tenantId is logged; the request is NOT blocked here.
  *   - "enforce": trusted tenant stays authoritative; a mismatch is rejected using
- *               the package's existing 403 response shape.
- *
- * The default is "warn" so the first consuming-service adoption is backward-safe.
+ *               the package's existing 403 response shape. No role is exempt.
+ * Any other value (including an empty string) is a configuration error and throws.
  */
 const { createLogger } = require("@projectShell/logging-lib");
 
 const tenantLogger = createLogger(
   process.env.POLICY_MW_LOG_SERVICE_NAME || "policy-middleware"
 );
+
+/** Canonical internal ProjectShell tenant id: exactly 24 lowercase hexadecimal characters. */
+const INTERNAL_TENANT_ID = /^[0-9a-f]{24}$/;
+const TENANT_CONTEXT_MODES = ["warn", "enforce"];
+
+function isInternalTenantId(value) {
+  return typeof value === "string" && INTERNAL_TENANT_ID.test(value);
+}
+
+/**
+ * Validate a tenant-context mode. `undefined` -> "warn" (default); "warn" / "enforce"
+ * pass through; anything else throws (no silent fallback). The offending value is not
+ * echoed in the message.
+ */
+function resolveTenantContextMode(value) {
+  if (value === undefined) return "warn";
+  if (TENANT_CONTEXT_MODES.includes(value)) return value;
+  throw new Error(
+    'Invalid tenant context mode: TENANT_CONTEXT_MODE (or options.mode) must be "warn" or "enforce"'
+  );
+}
+
+/**
+ * The mode for a middleware/resolver: an explicit `options.mode` wins; otherwise the
+ * service's TENANT_CONTEXT_MODE environment setting. Both are always validated, so a
+ * malformed TENANT_CONTEXT_MODE fails even when a mode is passed explicitly.
+ */
+function tenantContextModeFrom(options = {}) {
+  const fromEnv = resolveTenantContextMode(process.env.TENANT_CONTEXT_MODE);
+  return options.mode !== undefined ? resolveTenantContextMode(options.mode) : fromEnv;
+}
 
 /** Normalize any tenant value to a String (or undefined). Never throws. */
 function toTenantString(value) {
@@ -34,20 +66,16 @@ function toTenantString(value) {
 }
 
 /**
- * The trusted application tenant id, from authenticated context only.
- * Order: gateway-verified `x-tenant-id` header, then auth-middleware context.
- * Header is trusted only when `x-jwt-verified: true` (the gateway sets both,
- * and strips spoofed copies before routing).
+ * The trusted application tenant id, or undefined. Trusted ONLY when the request carries
+ * the gateway's verified boundary: x-auth-source "gateway", x-jwt-verified "true" and an
+ * x-tenant-id of exactly 24 lowercase hex characters. No other source is consulted.
  */
 function getTrustedTenant(req) {
   const headers = req.headers || {};
-  const gatewayVerified = headers["x-jwt-verified"] === "true";
-  const fromGateway = gatewayVerified ? headers["x-tenant-id"] : undefined;
-  const fromCtx =
-    (req.ctx && req.ctx.tenantId) ||
-    (req.user && req.user.tenantId) ||
-    req.tenantId;
-  return toTenantString(fromGateway || fromCtx);
+  if (headers["x-auth-source"] !== "gateway") return undefined;
+  if (headers["x-jwt-verified"] !== "true") return undefined;
+  const tenantId = headers["x-tenant-id"];
+  return isInternalTenantId(tenantId) ? tenantId : undefined;
 }
 
 /** Caller-supplied (untrusted) tenantId values, by source. */
@@ -119,7 +147,7 @@ function logMismatch(req, trusted, mismatchSources, mode) {
  * @param {{ mode?: "warn"|"enforce" }} [options]
  */
 function resolveTenantContext(req, options = {}) {
-  const mode = options.mode === "enforce" ? "enforce" : "warn";
+  const mode = tenantContextModeFrom(options);
   const { trusted, supplied, mismatchSources } = detectTenantOverride(req);
 
   // Trusted tenant is always authoritative.
@@ -149,10 +177,13 @@ function resolveTenantContext(req, options = {}) {
  * Express middleware wrapper around resolveTenantContext.
  * In "enforce" mode, a mismatch is rejected with the package's 403 shape.
  * In "warn" mode (default), it never blocks.
+ * The mode is resolved and validated once, when the middleware is created (service
+ * startup): an invalid TENANT_CONTEXT_MODE / options.mode throws there.
  */
 function tenantContextMiddleware(options = {}) {
+  const mode = tenantContextModeFrom(options);
   return (req, res, next) => {
-    const result = resolveTenantContext(req, options);
+    const result = resolveTenantContext(req, { mode });
     if (result.rejected) {
       return res.status(403).json({
         success: false,
@@ -166,6 +197,11 @@ function tenantContextMiddleware(options = {}) {
 }
 
 module.exports = {
+  INTERNAL_TENANT_ID,
+  TENANT_CONTEXT_MODES,
+  isInternalTenantId,
+  resolveTenantContextMode,
+  tenantContextModeFrom,
   toTenantString,
   getTrustedTenant,
   getSuppliedTenants,
