@@ -20,7 +20,7 @@ const util = require("util");
 const B64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 const JWT_CLAIMS = {
   sub: "user-token-1",
-  tenantId: "tenant-token-1",
+  tenantId: "bbbbbbbbbbbbbbbbbbbb0002",
   email: "token.person@example.org",
   roles: ["TOKEN-SECRET-ROLE"],
   permissions: ["tokensecret:read"],
@@ -39,7 +39,7 @@ const ROLES = ["SECRET-ROLE-CODE"];
 const PERMS = ["secretresource:secretaction"];
 const RESULT_USER = {
   id: "user-1",
-  tenantId: "tenant-1",
+  tenantId: "bbbbbbbbbbbbbbbbbbbb0001",
   userType: "CRM",
   email: "result.person@example.org",
   roles: ["RESULT-SECRET-ROLE"],
@@ -99,7 +99,7 @@ const gatewayHeaders = (extra = {}) => ({
   "x-jwt-verified": "true",
   "x-auth-source": "gateway",
   "x-user-id": "user-1",
-  "x-tenant-id": "tenant-1",
+  "x-tenant-id": "bbbbbbbbbbbbbbbbbbbb0001",
   "x-user-roles": JSON.stringify(ROLES),
   "x-user-permissions": JSON.stringify(PERMS),
   "x-user-email": "header.person@example.org",
@@ -169,10 +169,10 @@ function scenarios(label, load) {
     assert.equal(req.policyContext, result);
     assert.equal(req.user, result.user);
     assert.equal(req.userId, "user-1");
-    assert.equal(req.tenantId, "tenant-1");
+    assert.equal(req.tenantId, "bbbbbbbbbbbbbbbbbbbb0001");
     assert.deepEqual(req.roles, RESULT_USER.roles);
     assert.deepEqual(req.permissions, RESULT_USER.permissions);
-    assert.deepEqual(sent.context, expectedContext("user-1", "tenant-1", ROLES, PERMS));
+    assert.deepEqual(sent.context, expectedContext("user-1", "bbbbbbbbbbbbbbbbbbbb0001", ROLES, PERMS));
     assert.equal(sent.resource, "things");
     assert.equal(sent.headers["x-user-id"], "user-1");
     assertClean(text);
@@ -180,7 +180,7 @@ function scenarios(label, load) {
     assert.match(text, /resource: 'things'/);
     assert.match(text, /action: 'write'/);
     assert.match(text, /userId: 'user-1'/);
-    assert.match(text, /tenantId: 'tenant-1'/);
+    assert.match(text, /tenantId: 'bbbbbbbbbbbbbbbbbbbb0001'/);
     assert.match(text, /authPath: 'gateway'/);
     assert.match(text, /roleCount: 1/);
     assert.match(text, /permissionCount: 1/);
@@ -191,7 +191,7 @@ function scenarios(label, load) {
     assert.match(text, /userType: 'CRM'/);
   });
 
-  test(`${label}: 2 token path - token, claims and context unchanged; nothing token-derived logged`, async () => {
+  test(`${label}: 2 token path - raw token to the PDP, no local decode; identity only from the verified result`, async () => {
     const pm = newMiddleware();
     let sent;
     pm.policyClient.evaluatePolicy = async (token, resource, action, context) => {
@@ -200,15 +200,17 @@ function scenarios(label, load) {
     };
     const { req, nextCalled, text } = await run(pm, mkReq({ headers: { authorization: `Bearer ${JWT}` } }));
     assert.equal(nextCalled, true);
-    assert.equal(sent.token, JWT);
-    assert.deepEqual(
-      sent.context,
-      expectedContext(JWT_CLAIMS.sub, JWT_CLAIMS.tenantId, JWT_CLAIMS.roles, JWT_CLAIMS.permissions),
-    );
-    assert.equal(req.tenantId, "tenant-1");
+    assert.equal(sent.token, JWT, "raw Bearer passed unchanged to the PDP");
+    // The middleware does not decode the token: pre-PDP identity is undefined.
+    assert.equal(sent.context.userId, undefined);
+    assert.equal(sent.context.tenantId, undefined);
+    assert.deepEqual(sent.context, expectedContext(undefined, undefined, [], []));
+    // Identity and tenant come only from the PDP's verified result.
+    assert.equal(req.tenantId, "bbbbbbbbbbbbbbbbbbbb0001");
+    assert.equal(req.userId, RESULT_USER.id);
     assertClean(text);
     assert.match(text, /authPath: 'token'/);
-    assert.match(text, /userId: 'user-token-1'/);
+    for (const claim of [JWT_CLAIMS.sub, JWT_CLAIMS.tenantId]) assert.ok(!text.includes(claim), `token-derived ${claim} must not appear`);
   });
 
   test(`${label}: 3 auth-bypass path - same synthetic PERMIT; auth endpoint still 403`, async (t) => {
@@ -218,7 +220,7 @@ function scenarios(label, load) {
     pm.policyClient.evaluateWithHeaders = async () => assert.fail("bypass must not call user-service");
     const r = await run(pm, mkReq({ headers: gatewayHeaders() }));
     assert.equal(r.nextCalled, true);
-    assert.deepEqual(r.req.user, { id: "user-1", userType: "PORTAL", tenantId: "tenant-1", roles: ROLES, permissions: PERMS });
+    assert.deepEqual(r.req.user, { id: "user-1", userType: "PORTAL", tenantId: "bbbbbbbbbbbbbbbbbbbb0001", roles: ROLES, permissions: PERMS });
     assert.equal(r.req.policyContext.reason, "AUTH_BYPASS_ENABLED");
     assertClean(r.text);
     assert.match(r.text, /authPath: 'bypass'/);
@@ -276,9 +278,11 @@ function scenarios(label, load) {
     const noUser = await run(pm, mkReq({ headers: {} }));
     assert.equal(noUser.res.statusCode, 401);
     assert.deepEqual(noUser.res.body, { success: false, error: "Authentication required", code: "UNAUTHORIZED", status: 401 });
-    const noToken = await run(pm, mkReq({ headers: {}, ctx: { userId: "user-1", tenantId: "tenant-1" } }));
+    // req.ctx is no longer an authentication/tenant source (Phase B): without a token this is the
+    // generic no-authentication branch.
+    const noToken = await run(pm, mkReq({ headers: {}, ctx: { userId: "user-1", tenantId: "bbbbbbbbbbbbbbbbbbbb0001" } }));
     assert.equal(noToken.res.statusCode, 401);
-    assert.deepEqual(noToken.res.body, { success: false, error: "Authorization token required", code: "UNAUTHORIZED", status: 401 });
+    assert.deepEqual(noToken.res.body, { success: false, error: "Authentication required", code: "UNAUTHORIZED", status: 401 });
     assertClean(noUser.text + noToken.text);
   });
 
@@ -353,7 +357,7 @@ function scenarios(label, load) {
     assert.equal(gatewayResult.valid, false);
     const tc = await capture(() =>
       lib.resolveTenantContext(
-        mkReq({ headers: gatewayHeaders(), body: { tenantId: "other-tenant" } }),
+        mkReq({ headers: gatewayHeaders(), body: { tenantId: "bbbbbbbbbbbbbbbbbbbb0003" } }),
         { mode: "warn" },
       ),
     );

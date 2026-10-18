@@ -41,81 +41,84 @@ function mkRes() {
   r.json = (p) => ((r.payload = p), r);
   return r;
 }
-const gwHeaders = (t) => ({ "x-jwt-verified": "true", "x-tenant-id": t });
+const gwHeaders = (t) => ({ "x-auth-source": "gateway", "x-jwt-verified": "true", "x-tenant-id": t });
+// Internal ProjectShell tenant ids (24 lowercase hex), named after the original fixtures.
+const T1 = "aaaaaaaaaaaaaaaaaaaa0001", T2 = "aaaaaaaaaaaaaaaaaaaa0002", T3 = "aaaaaaaaaaaaaaaaaaaa0003", T4 = "aaaaaaaaaaaaaaaaaaaa0004";
+const T9 = "aaaaaaaaaaaaaaaaaaaa0009", TRUE_T = "aaaaaaaaaaaaaaaaaaaa000f", EVIL_T = "aaaaaaaaaaaaaaaaaaaa000e";
 
 // 1. trusted tenant only -> accepted, set on req
 test("1 trusted tenant only -> accepted", () => {
-  const req = mkReq({ headers: gwHeaders("T1") });
+  const req = mkReq({ headers: gwHeaders(T1) });
   const r = resolveTenantContext(req);
-  assert.equal(r.tenantId, "T1");
-  assert.equal(req.tenantId, "T1");
+  assert.equal(r.tenantId, T1);
+  assert.equal(req.tenantId, T1);
   assert.equal(r.mismatch, false);
   assert.equal(r.rejected, false);
 });
 
 // 2. matching body tenant -> accepted, no mismatch
 test("2 matching body tenant -> accepted", () => {
-  const req = mkReq({ headers: gwHeaders("T1"), body: { tenantId: "T1" } });
+  const req = mkReq({ headers: gwHeaders(T1), body: { tenantId: T1 } });
   const r = resolveTenantContext(req);
   assert.equal(r.mismatch, false);
-  assert.equal(req.tenantId, "T1");
+  assert.equal(req.tenantId, T1);
 });
 
 // 3. mismatching body tenant: warn retains trusted (no block); enforce rejects
 test("3 mismatching body tenant: warn vs enforce", () => {
-  const warnReq = mkReq({ headers: gwHeaders("T1"), body: { tenantId: "T2" } });
+  const warnReq = mkReq({ headers: gwHeaders(T1), body: { tenantId: T2 } });
   const warn = resolveTenantContext(warnReq, { mode: "warn" });
   assert.equal(warn.mismatch, true);
   assert.equal(warn.rejected, false);
-  assert.equal(warnReq.tenantId, "T1", "trusted retained in warn");
+  assert.equal(warnReq.tenantId, T1, "trusted retained in warn");
 
-  const enfReq = mkReq({ headers: gwHeaders("T1"), body: { tenantId: "T2" } });
+  const enfReq = mkReq({ headers: gwHeaders(T1), body: { tenantId: T2 } });
   const enf = resolveTenantContext(enfReq, { mode: "enforce" });
   assert.equal(enf.mismatch, true);
   assert.equal(enf.rejected, true);
-  assert.equal(enfReq.tenantId, "T1", "trusted retained even in enforce");
+  assert.equal(enfReq.tenantId, T1, "trusted retained even in enforce");
 });
 
 // 4. mismatching query tenant
 test("4 mismatching query tenant flagged", () => {
-  const req = mkReq({ headers: gwHeaders("T1"), query: { tenantId: "T2" } });
+  const req = mkReq({ headers: gwHeaders(T1), query: { tenantId: T2 } });
   const r = resolveTenantContext(req, { mode: "enforce" });
   assert.deepEqual(r.mismatchSources, ["query"]);
   assert.equal(r.rejected, true);
-  assert.equal(req.tenantId, "T1");
+  assert.equal(req.tenantId, T1);
 });
 
 // 5. mismatching params tenant
 test("5 mismatching params tenant flagged", () => {
-  const req = mkReq({ headers: gwHeaders("T1"), params: { tenantId: "T2" } });
+  const req = mkReq({ headers: gwHeaders(T1), params: { tenantId: T2 } });
   const r = resolveTenantContext(req, { mode: "enforce" });
   assert.deepEqual(r.mismatchSources, ["params"]);
-  assert.equal(req.tenantId, "T1");
+  assert.equal(req.tenantId, T1);
 });
 
 // 6. multiple supplied tenant values
 test("6 multiple supplied sources flagged", () => {
   const req = mkReq({
-    headers: gwHeaders("T1"),
-    body: { tenantId: "T2" },
-    query: { tenantId: "T3" },
-    params: { tenantId: "T4" },
+    headers: gwHeaders(T1),
+    body: { tenantId: T2 },
+    query: { tenantId: T3 },
+    params: { tenantId: T4 },
   });
   const r = resolveTenantContext(req, { mode: "warn" });
   assert.deepEqual(r.mismatchSources.sort(), ["body", "params", "query"]);
-  assert.equal(req.tenantId, "T1");
+  assert.equal(req.tenantId, T1);
 });
 
 // 7. supplied tenant cannot replace trusted tenant
 test("7 supplied cannot replace trusted", () => {
-  const req = mkReq({ headers: gwHeaders("TRUE"), body: { tenantId: "EVIL" } });
+  const req = mkReq({ headers: gwHeaders(TRUE_T), body: { tenantId: EVIL_T } });
   resolveTenantContext(req, { mode: "warn" });
-  assert.equal(req.tenantId, "TRUE");
+  assert.equal(req.tenantId, TRUE_T);
 });
 
 // 8. missing trusted tenant behavior: req.tenantId not set to a supplied value
 test("8 missing trusted tenant -> no supplied promotion", () => {
-  const req = mkReq({ body: { tenantId: "T9" } }); // no gateway header, no ctx
+  const req = mkReq({ body: { tenantId: T9 } }); // no gateway header, no ctx
   const r = resolveTenantContext(req, { mode: "enforce" });
   assert.equal(r.trustedTenantPresent, false);
   assert.equal(r.tenantId, undefined);
@@ -124,24 +127,30 @@ test("8 missing trusted tenant -> no supplied promotion", () => {
   assert.equal(r.rejected, false);
 });
 
-// 9. tenant normalized to String (e.g. ObjectId-like)
-test("9 tenant normalized to String", () => {
+// 9. req.ctx is NOT a trusted tenant source (Phase B): without verified gateway headers it is
+//    ignored, and a req.tenantId already set by the service's own authentication is not overwritten
+//    because req.ctx carries a tenant (e.g. an azuread/tid value can never re-enter the boundary).
+test("9 req.ctx tenant is not trusted and does not overwrite the service's req.tenantId", () => {
   const objectIdLike = { toString: () => "507f1f77bcf86cd799439011" };
-  const req = mkReq({ ctx: { tenantId: objectIdLike } });
-  const r = resolveTenantContext(req);
-  assert.equal(typeof r.tenantId, "string");
-  assert.equal(r.tenantId, "507f1f77bcf86cd799439011");
-  assert.equal(typeof req.tenantId, "string");
+  for (const ctxTenant of [objectIdLike, "507f1f77bcf86cd799439011", "9188040d-6c67-4c5b-b112-36a304b66dad"]) {
+    const req = mkReq({ ctx: { tenantId: ctxTenant }, user: { tenantId: ctxTenant }, tenantId: T1 });
+    assert.equal(getTrustedTenant(req), undefined);
+    const r = resolveTenantContext(req);
+    assert.equal(r.trustedTenantPresent, false);
+    assert.equal(r.tenantId, undefined);
+    assert.equal(req.tenantId, T1, "service-owned req.tenantId left as is");
+    assert.equal(req.ctx.tenantId, ctxTenant, "req.ctx not rewritten either");
+  }
 });
 
 // 10. policy.middleware context cannot be changed by body/query tenantId
 //     (replicates the context assembly + canonical re-assert from policy.middleware.js)
 test("10 policy context: canonical tenant survives body/query spread", () => {
-  const trustedTenant = "T1";
+  const trustedTenant = T1;
   const req = mkReq({
     headers: gwHeaders(trustedTenant),
-    body: { tenantId: "T2", note: "hello" },
-    query: { tenantId: "T3", filter: "open" },
+    body: { tenantId: T2, note: "hello" },
+    query: { tenantId: T3, filter: "open" },
   });
   const override = detectTenantOverride(req, trustedTenant);
   assert.ok(override.mismatchSources.length >= 1);
@@ -154,21 +163,21 @@ test("10 policy context: canonical tenant survives body/query spread", () => {
   };
   context.tenantId = trustedTenant; // the fix
   context.userId = "U1";
-  assert.equal(context.tenantId, "T1", "canonical tenant wins over body/query");
+  assert.equal(context.tenantId, T1, "canonical tenant wins over body/query");
 });
 
 // 11. non-tenant body/query attributes continue to flow into context
 test("11 non-tenant attributes preserved", () => {
   const req = mkReq({
-    headers: gwHeaders("T1"),
-    body: { tenantId: "T2", note: "hello" },
+    headers: gwHeaders(T1),
+    body: { tenantId: T2, note: "hello" },
     query: { filter: "open" },
   });
-  const context = { tenantId: "T1", ...req.query, ...req.body };
-  context.tenantId = "T1";
+  const context = { tenantId: T1, ...req.query, ...req.body };
+  context.tenantId = T1;
   assert.equal(context.note, "hello");
   assert.equal(context.filter, "open");
-  assert.equal(context.tenantId, "T1");
+  assert.equal(context.tenantId, T1);
 });
 
 // helpers: toTenantString / getTrustedTenant edge cases
@@ -185,7 +194,7 @@ test("getTrustedTenant ignores x-tenant-id when not gateway-verified", () => {
 
 // tenantContextMiddleware wiring
 test("middleware enforce -> 403 on mismatch", () => {
-  const req = mkReq({ headers: gwHeaders("T1"), body: { tenantId: "T2" } });
+  const req = mkReq({ headers: gwHeaders(T1), body: { tenantId: T2 } });
   const res = mkRes();
   let nexted = false;
   tenantContextMiddleware({ mode: "enforce" })(req, res, () => (nexted = true));
@@ -194,16 +203,16 @@ test("middleware enforce -> 403 on mismatch", () => {
   assert.equal(res.payload.code, "TENANT_CONTEXT_MISMATCH");
 });
 test("middleware warn -> next() on mismatch, trusted retained", () => {
-  const req = mkReq({ headers: gwHeaders("T1"), body: { tenantId: "T2" } });
+  const req = mkReq({ headers: gwHeaders(T1), body: { tenantId: T2 } });
   const res = mkRes();
   let nexted = false;
   tenantContextMiddleware({ mode: "warn" })(req, res, () => (nexted = true));
   assert.equal(nexted, true);
   assert.equal(res.statusCode, null);
-  assert.equal(req.tenantId, "T1");
+  assert.equal(req.tenantId, T1);
 });
 test("middleware default mode is warn (backward-safe)", () => {
-  const req = mkReq({ headers: gwHeaders("T1"), body: { tenantId: "T2" } });
+  const req = mkReq({ headers: gwHeaders(T1), body: { tenantId: T2 } });
   const res = mkRes();
   let nexted = false;
   tenantContextMiddleware()(req, res, () => (nexted = true));
@@ -218,7 +227,7 @@ test("12 gatewaySecurity still validates/ rejects as before", () => {
       headers: {
         "x-jwt-verified": "true",
         "x-user-id": "U1",
-        "x-tenant-id": "T1",
+        "x-tenant-id": T1,
       },
     })
   );
@@ -264,48 +273,48 @@ const findMismatchRow = (rows) =>
 
 // A. tenant_id alias cannot change canonical context.tenantId
 test("A tenant_id alias cannot change canonical tenant scope", () => {
-  const trusted = "T1";
-  const req = mkReq({ headers: gwHeaders(trusted), body: { tenant_id: "T2", note: "x" } });
+  const trusted = T1;
+  const req = mkReq({ headers: gwHeaders(trusted), body: { tenant_id: T2, note: "x" } });
   // alias is NOT the canonical key -> not a mismatch of tenantId
   const r = resolveTenantContext(req, { mode: "enforce" });
   assert.equal(r.mismatch, false, "tenant_id is not the canonical key");
   // simulate policy context assembly + canonical re-assert
   const context = { tenantId: trusted, ...req.query, ...req.body };
   context.tenantId = trusted;
-  assert.equal(context.tenantId, "T1");
-  assert.equal(context.tenant_id, "T2", "alias remains an inert business field");
+  assert.equal(context.tenantId, T1);
+  assert.equal(context.tenant_id, T2, "alias remains an inert business field");
 });
 
 // B. tenantID alias cannot change canonical context.tenantId
 test("B tenantID alias cannot change canonical tenant scope", () => {
-  const trusted = "T1";
-  const req = mkReq({ headers: gwHeaders(trusted), body: { tenantID: "T2" } });
+  const trusted = T1;
+  const req = mkReq({ headers: gwHeaders(trusted), body: { tenantID: T2 } });
   const r = resolveTenantContext(req, { mode: "enforce" });
   assert.equal(r.mismatch, false);
   const context = { tenantId: trusted, ...req.body };
   context.tenantId = trusted;
-  assert.equal(context.tenantId, "T1");
-  assert.equal(context.tenantID, "T2");
+  assert.equal(context.tenantId, T1);
+  assert.equal(context.tenantID, T2);
 });
 
 // C. nested tenant object cannot change canonical context.tenantId (PDP ignores it)
 test("C nested tenant object cannot change canonical tenant scope", () => {
-  const trusted = "T1";
-  const req = mkReq({ headers: gwHeaders(trusted), body: { tenant: { id: "T2" } } });
+  const trusted = T1;
+  const req = mkReq({ headers: gwHeaders(trusted), body: { tenant: { id: T2 } } });
   const r = resolveTenantContext(req, { mode: "enforce" });
   assert.equal(r.mismatch, false);
   const context = { tenantId: trusted, ...req.body };
   context.tenantId = trusted;
-  assert.equal(context.tenantId, "T1");
-  assert.deepEqual(context.tenant, { id: "T2" });
+  assert.equal(context.tenantId, T1);
+  assert.deepEqual(context.tenant, { id: T2 });
 });
 
 // D. WARN mismatch logging schema
 test("D warn mismatch log has required safe fields, no secrets", () => {
   process.env.NODE_ENV = process.env.NODE_ENV || "test";
   const req = mkReq({
-    headers: { ...gwHeaders("T1"), "x-auth-source": "gateway", authorization: "Bearer eyJsecret.aaa.bbb" },
-    body: { tenantId: "T2", password: "p@ss" },
+    headers: { ...gwHeaders(T1), "x-auth-source": "gateway", authorization: "Bearer eyJsecret.aaa.bbb" },
+    body: { tenantId: T2, password: "p@ss" },
   });
   req.correlationId = "cid-warn-1";
   const { raw, rows } = captureStdout(() => resolveTenantContext(req, { mode: "warn" }));
@@ -314,7 +323,7 @@ test("D warn mismatch log has required safe fields, no secrets", () => {
   assert.equal(row.eventType, "TenantContextMismatch");
   assert.equal(row.mode, "warn");
   assert.equal(row.outcome, "ignored");
-  assert.equal(row.trustedTenantId, "T1");
+  assert.equal(row.trustedTenantId, T1);
   assert.deepEqual(row.suppliedSources, ["body"]);
   assert.equal(row.correlationId, "cid-warn-1");
   assert.equal(row.authSource, "gateway");
@@ -330,8 +339,8 @@ test("D warn mismatch log has required safe fields, no secrets", () => {
 test("E enforce mismatch logs at error level, outcome rejected, 403", () => {
   process.env.NODE_ENV = process.env.NODE_ENV || "test";
   const req = mkReq({
-    headers: { ...gwHeaders("T1"), "x-auth-source": "gateway" },
-    query: { tenantId: "T2" },
+    headers: { ...gwHeaders(T1), "x-auth-source": "gateway" },
+    query: { tenantId: T2 },
   });
   req.correlationId = "cid-enf-1";
   const res = mkRes();

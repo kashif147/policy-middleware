@@ -9,7 +9,13 @@ import PolicyClient from "./policyClient.js";
 import * as gatewaySecurity from "./gatewaySecurity.js";
 // Destructured (not whole-module) require so the ESM build emits a NAMED import
 // matching tenantContext.js's named exports (a default import would be undefined).
-import { resolveTenantContext, tenantContextMiddleware } from "./tenantContext.js";
+import {
+  resolveTenantContext,
+  tenantContextMiddleware,
+  resolveTenantContextMode,
+  getTrustedTenant,
+  isInternalTenantId,
+} from "./tenantContext.js";
 
 // Create default policy middleware instance
 const createDefaultPolicyMiddleware = (baseURL, options = {}) => {
@@ -25,12 +31,16 @@ const createDefaultPolicyMiddleware = (baseURL, options = {}) => {
 // Default instance (requires baseURL to be set)
 const defaultPolicyMiddleware = null;
 
+// resolveTenantContextMode: services validate TENANT_CONTEXT_MODE with it at startup (Phase C).
 export {
   PolicyMiddleware,
   PolicyClient,
   gatewaySecurity,
   resolveTenantContext,
   tenantContextMiddleware,
+  resolveTenantContextMode,
+  getTrustedTenant,
+  isInternalTenantId,
   createDefaultPolicyMiddleware,
   defaultPolicyMiddleware,
 };

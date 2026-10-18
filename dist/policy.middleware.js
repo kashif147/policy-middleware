@@ -6,8 +6,7 @@
  */
 
 const PolicyClient = require("./policyClient");
-const jwt = require("jsonwebtoken");
-const { detectTenantOverride } = require("./tenantContext");
+const { detectTenantOverride, getTrustedTenant } = require("./tenantContext");
 const {
   fieldNames,
   count,
@@ -54,9 +53,10 @@ class PolicyMiddleware {
         let userId, tenantId, userRoles, userPermissions;
 
         if (hasGatewayHeaders) {
-          // Read from gateway headers
+          // Read from gateway headers. The tenant is the gateway's verified boundary only
+          // (24 lowercase hex, see tenantContext.getTrustedTenant); anything else -> none -> 401.
           userId = req.headers["x-user-id"];
-          tenantId = req.headers["x-tenant-id"];
+          tenantId = getTrustedTenant(req);
 
           try {
             const rolesStr = req.headers["x-user-roles"] || "[]";
@@ -81,40 +81,24 @@ class PolicyMiddleware {
             );
             userPermissions = [];
           }
-        } else {
-          // Fallback to request context (from auth middleware)
-          userId = req.ctx?.userId || req.user?.id || req.userId;
-          tenantId = req.ctx?.tenantId || req.user?.tenantId || req.tenantId;
-          userRoles = req.ctx?.roles || req.user?.roles || req.roles || [];
-          userPermissions =
-            req.ctx?.permissions ||
-            req.user?.permissions ||
-            req.permissions ||
-            [];
-
-          // If still no userId/tenantId, try to decode JWT token from Authorization header
-          if (!userId || !tenantId) {
-            const authHeader = req.headers.authorization || req.headers.Authorization;
-            if (authHeader && authHeader.startsWith("Bearer ")) {
-              const token = authHeader.substring(7);
-              try {
-                // Decode without verification (we'll verify in policy service)
-                const decoded = jwt.decode(token, { complete: false });
-                if (decoded) {
-                  userId = userId || decoded.sub || decoded.id || decoded.userId;
-                  tenantId = tenantId || decoded.tenantId || decoded.tid || decoded.extension_tenantId;
-                  userRoles = userRoles.length > 0 ? userRoles : (decoded.roles || []);
-                  userPermissions = userPermissions.length > 0 ? userPermissions : (decoded.permissions || []);
-                  console.log("[POLICY_MIDDLEWARE] Extracted user context from JWT token");
-                }
-              } catch (e) {
-                console.log("[POLICY_MIDDLEWARE] WARN: Failed to decode JWT token:", e.message);
-              }
-            }
-          }
+        }
+        // Without the gateway's verified headers no identity is taken from the request: not
+        // from req.ctx / req.user (set by the service's own auth layer), and never by decoding
+        // a Bearer payload (no tenantId / tid / extension_tenantId fallback). A Bearer token is
+        // sent unchanged to the PDP (evaluatePolicy below), which verifies it; identity and
+        // tenant are then populated only from that verified result.
+        const authHeaderValue = req.headers.authorization || req.headers.Authorization;
+        const hasBearer =
+          typeof authHeaderValue === "string" && authHeaderValue.startsWith("Bearer ");
+        const tokenOnly = !hasGatewayHeaders && hasBearer;
+        if (!hasGatewayHeaders) {
+          userId = undefined;
+          tenantId = undefined;
+          userRoles = [];
+          userPermissions = [];
         }
 
-        if (!userId || !tenantId) {
+        if (!tokenOnly && (!userId || !tenantId)) {
           console.log("Missing user context (userId or tenantId)");
           return res.status(401).json({
             success: false,
