@@ -8,7 +8,30 @@
  */
 
 const axios = require("axios");
+const crypto = require("crypto");
 const { errorFields, responseFields } = require("./safeLog");
+
+// Phase B / Z9.1 decision-cache key epoch: bump to make every previously cached decision miss when
+// the key inputs or the PDP's decision semantics change.
+const CACHE_KEY_EPOCH = "z9.1";
+
+// Key-sorted deep copy (arrays keep their order); toJSON values (Date, ObjectId) are honoured.
+function canonicalize(value, seen = new WeakSet()) {
+  if (value && typeof value.toJSON === "function") value = value.toJSON();
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) throw new TypeError("circular context");
+  seen.add(value);
+  const out = Array.isArray(value)
+    ? value.map((v) => (v === undefined ? null : canonicalize(v, seen)))
+    : Object.keys(value)
+        .sort()
+        .reduce((o, k) => {
+          if (value[k] !== undefined && typeof value[k] !== "function") o[k] = canonicalize(value[k], seen);
+          return o;
+        }, {});
+  seen.delete(value);
+  return out;
+}
 
 class PolicyClient {
   constructor(baseUrl, options = {}) {
@@ -115,7 +138,8 @@ class PolicyClient {
       tenantId,
       resource,
       action,
-      context
+      context,
+      headers
     );
 
     // Check cache first
@@ -328,53 +352,92 @@ class PolicyClient {
   }
 
   /**
-   * Generate cache key for request
+   * Generate cache key for a token-based request.
+   *
+   * Phase B / Z9.1: the token is identified by a sha256 of the WHOLE token (never a substring - the
+   * first 20 characters are the HS256 header, identical for every token), so two tokens can only
+   * share a cached decision if they are byte-identical.
    * @param {string} token - JWT token
    * @param {string} resource - Resource name
    * @param {string} action - Action name
    * @param {Object} context - Context object
-   * @returns {string} Cache key
+   * @returns {string} Cache key (`resource:action:<sha256>`, no identifiers)
    */
   getCacheKey(token, resource, action, context) {
-    const tokenHash = this.hashToken(token);
-    const contextHash = this.hashObject(context);
-    return `${tokenHash}:${resource}:${action}:${contextHash}`;
+    return this.decisionKey(resource, action, {
+      path: "token",
+      token: this.hashToken(token),
+      context,
+    });
   }
 
   /**
-   * Hash JWT token for caching (first 20 chars + last 10 chars)
+   * sha256 of the whole token (cache discriminator only; never logged)
    * @param {string} token - JWT token
-   * @returns {string} Hashed token
+   * @returns {string|null} Hex digest
    */
   hashToken(token) {
-    if (!token || token.length < 30) return token;
-    return token.substring(0, 20) + "..." + token.substring(token.length - 10);
+    if (!token) return null;
+    return crypto.createHash("sha256").update(String(token)).digest("hex");
   }
 
   /**
-   * Generate cache key from context (for header-based requests)
-   * @param {string} userId - User ID
-   * @param {string} tenantId - Tenant ID
+   * Generate cache key from context (for header-based requests).
+   *
+   * Phase B / Z9.1: the key is a fingerprint of EVERY verified identity attribute user-service's
+   * PDP decides on for a header-based request (policyEvaluationService.evaluatePolicyWithHeaders:
+   * x-user-id, x-tenant-id, x-user-type, x-user-roles, x-user-permissions) plus the request target
+   * and the whole canonical context - the same inputs as the PDP's own identity digest. There is no
+   * stored role/permission revision to reuse: a role or permission change reaches a request as a
+   * new token (new x-user-roles / x-user-permissions), so it naturally misses every decision cached
+   * for the old authorization state. Full user and tenant ids, never prefixes. The user's email is
+   * not decision input and is not part of the key.
+   * @param {string} userId - User ID (full)
+   * @param {string} tenantId - Tenant ID (full, the trusted tenant)
    * @param {string} resource - Resource name
    * @param {string} action - Action name
    * @param {Object} context - Context object
-   * @returns {string} Cache key
+   * @param {Object} [headers] - The identity headers forwarded to the PDP
+   * @returns {string} Cache key (`resource:action:<sha256>`, no identifiers)
    */
-  getCacheKeyFromContext(userId, tenantId, resource, action, context) {
-    const userHash = userId ? userId.substring(0, 8) : "no-user";
-    const tenantHash = tenantId ? tenantId.substring(0, 8) : "no-tenant";
-    const contextHash = this.hashObject(context);
-    return `${userHash}:${tenantHash}:${resource}:${action}:${contextHash}`;
+  getCacheKeyFromContext(userId, tenantId, resource, action, context, headers = {}) {
+    return this.decisionKey(resource, action, {
+      path: "headers",
+      userId: userId == null ? null : String(userId),
+      tenantId: tenantId == null ? null : String(tenantId),
+      identity: {
+        userId: headers["x-user-id"] ?? null,
+        tenantId: headers["x-tenant-id"] ?? null,
+        userType: headers["x-user-type"] ?? null,
+        roles: headers["x-user-roles"] ?? null,
+        permissions: headers["x-user-permissions"] ?? null,
+      },
+      context,
+    });
   }
 
   /**
-   * Hash object for caching
-   * @param {Object} obj - Object to hash
-   * @returns {string} Hashed object
+   * `resource:action:<sha256(epoch + inputs)>` - deterministic, collision-resistant, and safe to
+   * expose through getCacheStats() (no user/tenant ids, roles, permissions or token material).
+   */
+  decisionKey(resource, action, inputs) {
+    const digest = crypto
+      .createHash("sha256")
+      .update(this.hashObject({ epoch: CACHE_KEY_EPOCH, resource, action, ...inputs }))
+      .digest("hex");
+    return `${resource}:${action}:${digest}`;
+  }
+
+  /**
+   * Canonical JSON for caching: object keys sorted at EVERY depth, array order preserved, so equal
+   * content always gives the same string and nested values (e.g. role objects, nested body fields)
+   * are never dropped.
+   * @param {Object} obj - Object to serialise
+   * @returns {string} Canonical JSON
    */
   hashObject(obj) {
     try {
-      return JSON.stringify(obj, Object.keys(obj).sort());
+      return JSON.stringify(canonicalize(obj));
     } catch (error) {
       return "invalid-context";
     }

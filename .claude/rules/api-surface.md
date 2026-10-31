@@ -19,9 +19,15 @@ identity headers (`x-jwt-verified`, `x-user-id`, `x-tenant-id`, `x-user-roles`,
 came through the gateway. `evaluatePolicy(token, ...)` is the legacy fallback that sends a raw Bearer
 token for user-service to verify itself.
 
-Results are cached in-memory (`Map`, default 5-minute TTL) keyed off a hash of
-token-or-user-context + resource + action + context — call `clearCache()`/`getCacheStats()` when a
-caller needs to bust the cache (e.g. right after a role change), don't wait for the TTL. `makeRequest()`'s
+Results are cached in-memory (`Map`, default 5-minute TTL) under `resource:action:<sha256>` (Phase B
+/ Z9.1). The digest covers the key epoch (`CACHE_KEY_EPOCH`), resource, action and the whole
+key-sorted canonical context. On the header path it also covers every identity attribute the PDP
+decides on: full `x-user-id`, full `x-tenant-id`, `x-user-type`, `x-user-roles` and
+`x-user-permissions`. On the token path it covers a sha256 of the whole token. A role or permission
+change arrives as a new token, so it misses the old decision on its own. Keys hold no ids, roles,
+permissions, email or token material, so `getCacheStats()` is safe to expose. Add any new PDP
+decision input to the key, and bump `CACHE_KEY_EPOCH` when PDP semantics change. `clearCache()` still
+busts the cache immediately. `makeRequest()`'s
 retry logic is deliberately asymmetric: `401`/`403` fail immediately (a policy denial is not
 transient — retrying won't change it), `5xx`/network errors retry with exponential backoff up to
 `retries` (default 3, consuming services usually configure 5), and other `4xx` fail immediately too.
